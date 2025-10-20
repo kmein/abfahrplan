@@ -1,0 +1,55 @@
+#let timetable = json("timetable.json")
+
+#let showDirection(x) = {
+  let directionString = if x.direction == 0 {
+    "→"
+  } else {
+    "←"
+  }
+  x.route_short + directionString
+}
+
+#let showDepartures(departures) = {
+  departures.map(x => str(x.minute)).join(" ")
+}
+
+#set page(columns: 2, margin: 1cm)
+#set text(9pt, font: "Alegreya Sans")
+#set table(stroke: none)
+
+
+#let directionMap = (:)
+#for hour in timetable.hours {
+  for direction in hour.directions {
+    let directionString = showDirection(direction)
+    if not (directionString in directionMap) {
+      directionMap.insert(directionString, ())
+    } else {
+      let headsigns = (directionMap.at(directionString, default: ()) + (direction.departuresMonFri, direction.departuresSat, direction.departuresSun).flatten().map(x => x.headsign)).sorted().dedup()
+      directionMap.insert(directionString, headsigns)
+    }
+  }
+}
+
+#set page(footer: [
+  #set text(6pt)
+  #strong(timetable.station) —
+  #for (key, value) in directionMap {
+    strong(key) + " " + value.join(", ") + " "
+  }
+])
+
+#table(
+  columns: 5,
+  table.header("", "Line", "Mo-Fr", "Sa", "Su"),
+  ..timetable.hours.map(x =>
+    (table.hline(start: 1), table.cell(rowspan: x.directions.len(), strong(str(x.hour))),) +
+    x.directions.sorted(key: (d) => d.route_short + str(d.direction)).map(direction => (
+      showDirection(direction),
+      showDepartures(direction.departuresMonFri),
+      showDepartures(direction.departuresSat),
+      showDepartures(direction.departuresSun)
+    )).flatten()
+  ).flatten()
+)
+
