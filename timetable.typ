@@ -13,7 +13,7 @@
   departures.map(x => str(x.minute)).join(" ")
 }
 
-#set page(columns: 2, margin: 1cm)
+#set page(margin: 1cm)
 #set text(9pt, font: "Alegreya Sans")
 #set table(stroke: none)
 
@@ -31,25 +31,26 @@
   }
 }
 
-#set page(footer: [
-  #set text(6pt)
-  #strong(timetable.station) —
-  #for (key, value) in directionMap {
-    strong(key) + " " + value.join(", ") + " "
-  }
-])
 
-#table(
-  columns: 5,
-  table.header("", "Line", "Mo-Fr", "Sa", "Su"),
-  ..timetable.hours.map(x =>
-    (table.hline(start: 1), table.cell(rowspan: x.directions.len(), strong(str(x.hour))),) +
-    x.directions.sorted(key: (d) => d.route_short + str(d.direction)).map(direction => (
-      showDirection(direction),
-      showDepartures(direction.departuresMonFri),
-      showDepartures(direction.departuresSat),
-      showDepartures(direction.departuresSun)
-    )).flatten()
-  ).flatten()
+#grid(columns: (auto, auto),
+  columns(2, gutter: 0cm,
+  table(
+    columns: 5,
+    table.header("", "Line", "Mo-Fr", "Sa", "Su"),
+    ..timetable.hours.map(x =>
+      (table.hline(start: 1), table.cell(rowspan: x.directions.len(), strong(str(x.hour))),) +
+      x.directions.sorted(key: (d) => d.route_short + str(d.direction)).map(direction => (
+        showDirection(direction),
+        showDepartures(direction.departuresMonFri),
+        showDepartures(direction.departuresSat),
+        showDepartures(direction.departuresSun)
+      )).flatten()
+    ).flatten()
+  )),
+  rotate(-90deg, reflow: true, [
+    #strong(timetable.station) —
+    #for (key, value) in directionMap {
+      strong(key) + " " + value.join(", ") + " "
+    }
+  ]),
 )
-
