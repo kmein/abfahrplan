@@ -24,6 +24,33 @@ type Departure struct {
 	Direction  int8
 }
 
+func intersects(set1, set2 []string) bool {
+	setMap := make(map[string]bool)
+	for _, s := range set1 {
+		setMap[s] = true
+	}
+	for _, s := range set2 {
+		if setMap[s] {
+			return true
+		}
+	}
+	return false
+}
+
+func setDifference(set1, set2 []string) []string {
+	setMap := make(map[string]bool)
+	for _, s := range set2 {
+		setMap[s] = true
+	}
+	diff := []string{}
+	for _, s := range set1 {
+		if !setMap[s] {
+			diff = append(diff, s)
+		}
+	}
+	return diff
+}
+
 func isSuperset(set, subset []string) bool {
 	setMap := make(map[string]bool)
 	for _, s := range set {
@@ -55,14 +82,32 @@ func collectDepartures(feed *gtfsparser.Feed, routeNames []string, stationName s
 				hour := stopTime.Departure_time().Hour
 				minute := stopTime.Departure_time().Minute
 
-				if (routeNames == nil || len(routeNames) == 0) || slices.Contains(routeNames, trip.Route.Short_name) {
-					departureTimes[hour] = append(departureTimes[hour], Departure{
-						Minute:     minute,
-						RouteShort: trip.Route.Short_name,
-						Headsign:   *trip.Headsign,
-						Weekdays:   weekdays,
-						Direction:  trip.Direction_id,
-					})
+				if len(routeNames) == 0 || slices.Contains(routeNames, trip.Route.Short_name) {
+					// departureTimes[hour] = append(departureTimes[hour], Departure{
+					// 	Minute:     minute,
+					// 	RouteShort: trip.Route.Short_name,
+					// 	Headsign:   *trip.Headsign,
+					// 	Weekdays:   weekdays,
+					// 	Direction:  trip.Direction_id,
+					// })
+					// if any of the departureTimes[hour] have the same minute and routeshort and headsign and directionId, then just instead of adding a new one, merge the weekdays
+					found := false
+					for i, dep := range departureTimes[hour] {
+						if dep.Minute == minute && dep.RouteShort == trip.Route.Short_name && dep.Direction == trip.Direction_id {
+							departureTimes[hour][i].Weekdays = append(departureTimes[hour][i].Weekdays, weekdays...)
+							found = true
+							break
+						}
+					}
+					if !found {
+						departureTimes[hour] = append(departureTimes[hour], Departure{
+							Minute:     minute,
+							RouteShort: trip.Route.Short_name,
+							Headsign:   *trip.Headsign,
+							Weekdays:   weekdays,
+							Direction:  trip.Direction_id,
+						})
+					}
 				}
 			}
 		}
@@ -71,8 +116,9 @@ func collectDepartures(feed *gtfsparser.Feed, routeNames []string, stationName s
 }
 
 type JsonDeparture struct {
-	Minute   int8   `json:"minute"`
-	Headsign string `json:"headsign"`
+	Minute           int8     `json:"minute"`
+	Headsign         string   `json:"headsign"`
+	ExcludedWeekdays []string `json:"excluded_weekdays,omitempty"`
 }
 type JsonDirection struct {
 	DeparturesMonFri []JsonDeparture `json:"departuresMonFri"`
@@ -130,10 +176,11 @@ func jsonTimeTable(station string, departureTimes map[int8][]Departure) JsonDay 
 					})
 
 					for _, dep := range ddeps {
-						if isSuperset(dep.Weekdays, []string{"Mon", "Tue", "Wed", "Thu", "Fri"}) {
+						if intersects(dep.Weekdays, []string{"Mon", "Tue", "Wed", "Thu", "Fri"}) {
 							jsonDirection.DeparturesMonFri = append(jsonDirection.DeparturesMonFri, JsonDeparture{
-								Minute:   dep.Minute,
-								Headsign: dep.Headsign,
+								Minute:           dep.Minute,
+								Headsign:         dep.Headsign,
+								ExcludedWeekdays: setDifference([]string{"Mon", "Tue", "Wed", "Thu", "Fri"}, dep.Weekdays),
 							})
 						}
 						if isSuperset(dep.Weekdays, []string{"Sat"}) {

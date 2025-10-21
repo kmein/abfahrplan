@@ -9,8 +9,18 @@
   x.route_short + directionString
 }
 
+#let showExcludedWeekdays(departures) = {
+  let weekdays = departures.at("excluded_weekdays", default: ())
+  if weekdays.len() == 0 []
+  else {
+    let allWeekdays = ("Mon", "Tue", "Wed", "Thu", "Fri")
+    let excluded = allWeekdays.filter(day => not (weekdays.contains(day)))
+    super(excluded.join(","))
+  }
+}
+
 #let showDepartures(departures) = {
-  departures.map(x => str(x.minute)).join(" ")
+  departures.map(x => str(x.minute) + showExcludedWeekdays(x)).join(" ")
 }
 
 #set page(margin: 1cm)
