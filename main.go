@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -36,7 +37,7 @@ func isSuperset(set, subset []string) bool {
 	return true
 }
 
-func collectDepartures(feed *gtfsparser.Feed, stationName string) map[int8][]Departure {
+func collectDepartures(feed *gtfsparser.Feed, routeNames []string, stationName string) map[int8][]Departure {
 	departureTimes := make(map[int8][]Departure)
 	for _, trip := range feed.Trips {
 		for _, stopTime := range trip.StopTimes {
@@ -53,13 +54,16 @@ func collectDepartures(feed *gtfsparser.Feed, stationName string) map[int8][]Dep
 
 				hour := stopTime.Departure_time().Hour
 				minute := stopTime.Departure_time().Minute
-				departureTimes[hour] = append(departureTimes[hour], Departure{
-					Minute:     minute,
-					RouteShort: trip.Route.Short_name,
-					Headsign:   *trip.Headsign,
-					Weekdays:   weekdays,
-					Direction:  trip.Direction_id,
-				})
+
+				if (routeNames == nil || len(routeNames) == 0) || slices.Contains(routeNames, trip.Route.Short_name) {
+					departureTimes[hour] = append(departureTimes[hour], Departure{
+						Minute:     minute,
+						RouteShort: trip.Route.Short_name,
+						Headsign:   *trip.Headsign,
+						Weekdays:   weekdays,
+						Direction:  trip.Direction_id,
+					})
+				}
 			}
 		}
 	}
@@ -82,14 +86,14 @@ type JsonHour struct {
 	Hour       int8            `json:"hour"`
 }
 type JsonDay struct {
-	Hours []JsonHour `json:"hours"`
-  Station string     `json:"station"`
+	Hours   []JsonHour `json:"hours"`
+	Station string     `json:"station"`
 }
 
 func jsonTimeTable(station string, departureTimes map[int8][]Departure) JsonDay {
 	day := JsonDay{
-		Hours: make([]JsonHour, 0),
-    Station: station,
+		Hours:   make([]JsonHour, 0),
+		Station: station,
 	}
 	for hour := int8(0); hour <= 30; hour++ {
 		if departures, ok := departureTimes[hour]; ok {
@@ -106,6 +110,7 @@ func jsonTimeTable(station string, departureTimes map[int8][]Departure) JsonDay 
 
 			// group by direction
 			for routeShort, deps := range routeMap {
+
 				directionMap := make(map[int8][]Departure)
 				for _, dep := range deps {
 					directionMap[dep.Direction] = append(directionMap[dep.Direction], dep)
@@ -164,6 +169,7 @@ func main() {
 
 	stationName := flag.StringP("station", "s", "", "Name of the station to search for")
 	gtfsFile := flag.StringP("gtfs", "g", "GTFS.zip", "Path to the GTFS zip file")
+	routeNames := flag.StringSliceP("route", "r", []string{}, "Filter by route short names (can be specified multiple times)")
 	flag.Parse()
 
 	fmt.Printf("Reading GTFS data from '%s'...\n", *gtfsFile)
@@ -173,7 +179,7 @@ func main() {
 
 	fmt.Printf("Done, parsed %d agencies, %d stops, %d routes, %d trips, %d fare attributes\n\n", len(feed.Agencies), len(feed.Stops), len(feed.Routes), len(feed.Trips), len(feed.FareAttributes))
 
-	departureTimes := collectDepartures(feed, *stationName)
+	departureTimes := collectDepartures(feed, *routeNames, *stationName)
 
 	allJson := jsonTimeTable(*stationName, departureTimes)
 
