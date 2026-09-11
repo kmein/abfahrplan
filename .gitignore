@@ -1,4 +1,7 @@
-GTFS.zip
-abfahrplan
-timetable.json
-timetable.pdf
+# build artefacts at the repo root; unanchored, "abfahrplan" also matched cmd/abfahrplan/
+/GTFS.zip
+/abfahrplan
+/timetable.json
+/timetable.pdf
+/.direnv/
+*.sync-conflict-*
