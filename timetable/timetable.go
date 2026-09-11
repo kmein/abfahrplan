@@ -3,8 +3,10 @@
 package timetable
 
 import (
-	"iter"
+	"math"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,6 +93,28 @@ type key struct {
 type station struct {
 	byHour    map[int8][]departure
 	platforms map[string]int // stop name -> platforms seen under it
+	routes    map[string]bool
+	latSum    float64
+	lonSum    float64
+	coords    int
+	count     int
+}
+
+// Station is everything sharing a stop name: one entry for the picker, at the
+// centroid of its platforms.
+type Station struct {
+	Name       string   `json:"name"`
+	Slug       string   `json:"slug"`
+	Lat        float64  `json:"lat"`
+	Lon        float64  `json:"lon"`
+	Routes     []string `json:"routes"`
+	Departures int      `json:"departures"`
+}
+
+// Timetables is every station in the feed, built from one pass over it.
+type Timetables struct {
+	stations map[string]*station
+	index    []Station
 }
 
 func containsCI(s, substr string) bool {
@@ -137,13 +161,23 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []s
 
 			current := stations[name]
 			if current == nil {
-				current = &station{byHour: make(map[int8][]departure), platforms: make(map[string]int)}
+				current = &station{
+					byHour:    make(map[int8][]departure),
+					platforms: make(map[string]int),
+					routes:    make(map[string]bool),
+				}
 				stations[name] = current
 			}
 			if !seenStop[stop] {
 				seenStop[stop] = true
 				current.platforms[stop.Name]++
+				if stop.Lat != 0 || stop.Lon != 0 {
+					current.latSum += float64(stop.Lat)
+					current.lonSum += float64(stop.Lon)
+					current.coords++
+				}
 			}
+			current.routes[trip.Route.Short_name] = true
 
 			id := key{
 				station:    name,
@@ -177,6 +211,7 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []s
 		departure.Weekdays = f.calendar.regularWeekdays(departure.days)
 		current := stations[id.station]
 		current.byHour[id.hour] = append(current.byHour[id.hour], *departure)
+		current.count++
 	}
 	return stations
 }
@@ -196,21 +231,64 @@ func (f *Feed) Station(query string, routeNames ...string) Day {
 	return newDay(title(matched.platforms, query), matched.byHour)
 }
 
-// All returns a timetable for every station in the feed, keyed by stop name.
-// The timetables are built as they are yielded, so a caller writing them out
-// one at a time never holds more than one.
-func (f *Feed) All(routeNames ...string) iter.Seq2[string, Day] {
+// All groups every stop in the feed by name. Timetables are built on demand
+// rather than up front, so a caller writing them out one at a time never holds
+// more than one marshalled timetable.
+func (f *Feed) All(routeNames ...string) *Timetables {
 	stations := f.collect(func(stop *gtfs.Stop) (string, bool) {
 		return stop.Name, true
 	}, routeNames)
 
-	return func(yield func(string, Day) bool) {
-		for name, current := range stations {
-			if !yield(name, newDay(name, current.byHour)) {
-				return
-			}
-		}
+	names := make([]string, 0, len(stations))
+	for name := range stations {
+		names = append(names, name)
 	}
+	sort.Strings(names)
+
+	// slugs are assigned in name order, so a collision always resolves the same
+	// way from one build to the next
+	taken := make(map[string]bool, len(names))
+	index := make([]Station, 0, len(names))
+	for _, name := range names {
+		current := stations[name]
+		slug := Slug(name)
+		if slug == "" {
+			slug = "station"
+		}
+		unique := slug
+		for n := 2; taken[unique]; n++ {
+			unique = slug + "-" + strconv.Itoa(n)
+		}
+		taken[unique] = true
+
+		routes := make([]string, 0, len(current.routes))
+		for route := range current.routes {
+			routes = append(routes, route)
+		}
+		sort.Strings(routes)
+
+		entry := Station{Name: name, Slug: unique, Routes: routes, Departures: current.count}
+		if current.coords > 0 {
+			// five decimals is about a metre; the raw float32s carry conversion
+			// noise that would only bloat the index every visitor downloads
+			entry.Lat = math.Round(current.latSum/float64(current.coords)*1e5) / 1e5
+			entry.Lon = math.Round(current.lonSum/float64(current.coords)*1e5) / 1e5
+		}
+		index = append(index, entry)
+	}
+	return &Timetables{stations: stations, index: index}
+}
+
+// Stations lists every station, ordered by name, with its slug assigned.
+func (t *Timetables) Stations() []Station { return t.index }
+
+// Day builds one station's timetable.
+func (t *Timetables) Day(name string) Day {
+	current := t.stations[name]
+	if current == nil {
+		return newDay(name, nil)
+	}
+	return newDay(name, current.byHour)
 }
 
 // title picks the name to head the timetable with. GTFS splits a station into

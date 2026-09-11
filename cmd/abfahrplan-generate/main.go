@@ -1,0 +1,253 @@
+// Command abfahrplan-generate turns a GTFS feed into a directory of static
+// files: one JSON timetable and one PDF per station, plus an index for the
+// search box and the map. Point a web server at it; there is nothing to run.
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/kmein/abfahrplan/render"
+	"github.com/kmein/abfahrplan/timetable"
+	flag "github.com/spf13/pflag"
+)
+
+type meta struct {
+	Version    string    `json:"version"`
+	ValidFrom  string    `json:"valid_from"`
+	ValidTo    string    `json:"valid_to"`
+	BuiltAt    time.Time `json:"built_at"`
+	Stations   int       `json:"stations"`
+	Departures int       `json:"departures"`
+}
+
+func main() {
+	gtfsFile := flag.StringP("gtfs", "g", "GTFS.zip", "Path to the GTFS zip file")
+	outDir := flag.StringP("out", "o", "site", "Directory to generate into")
+	jobs := flag.IntP("jobs", "j", runtime.NumCPU(), "How many timetables to render at once")
+	keep := flag.Int("keep", 2, "How many previous builds to keep")
+	force := flag.Bool("force", false, "Publish even if the feed's validity period has ended")
+	limit := flag.Int("limit", 0, "Only generate this many stations (0 = all), for smoke tests")
+	flag.Parse()
+
+	if err := generate(*gtfsFile, *outDir, *jobs, *keep, *limit, *force); err != nil {
+		fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func generate(gtfsFile, outDir string, jobs, keep, limit int, force bool) error {
+	version, err := fingerprint(gtfsFile)
+	if err != nil {
+		return err
+	}
+
+	started := time.Now()
+	log("reading %s", gtfsFile)
+	feed, err := timetable.Load(gtfsFile)
+	if err != nil {
+		return fmt.Errorf("reading GTFS data: %w", err)
+	}
+
+	from, to := feed.Validity()
+	if to.IsZero() {
+		return fmt.Errorf("feed declares no validity period")
+	}
+	// A timetable nobody can travel by is worse than yesterday's: refuse it and
+	// leave whatever is published in place.
+	if to.Before(time.Now()) && !force {
+		return fmt.Errorf("feed expired on %s; refusing to publish it (use --force to override)", to.Format("2006-01-02"))
+	}
+
+	log("collecting departures for every station")
+	all := feed.All()
+	stations := all.Stations()
+	if limit > 0 && limit < len(stations) {
+		stations = stations[:limit]
+	}
+
+	departures := 0
+	for _, station := range stations {
+		departures += station.Departures
+	}
+	log("%d stations, %d departures, feed valid %s to %s (parsed in %s)",
+		len(stations), departures, from.Format("2006-01-02"), to.Format("2006-01-02"), time.Since(started).Round(time.Second))
+
+	buildDir := filepath.Join(outDir, "builds", version)
+	workDir := buildDir + ".tmp"
+	if err := os.RemoveAll(workDir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, "s"), 0o755); err != nil {
+		return err
+	}
+
+	if err := writeJSON(filepath.Join(workDir, "stations.json"), stations); err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(workDir, "meta.json"), meta{
+		Version:    version,
+		ValidFrom:  from.Format("2006-01-02"),
+		ValidTo:    to.Format("2006-01-02"),
+		BuiltAt:    time.Now().UTC().Truncate(time.Second),
+		Stations:   len(stations),
+		Departures: departures,
+	}); err != nil {
+		return err
+	}
+
+	if err := renderAll(all, stations, workDir, jobs); err != nil {
+		return err
+	}
+
+	if err := os.RemoveAll(buildDir); err != nil {
+		return err
+	}
+	if err := os.Rename(workDir, buildDir); err != nil {
+		return err
+	}
+	if err := publish(outDir, version); err != nil {
+		return err
+	}
+	if err := prune(outDir, version, keep); err != nil {
+		return err
+	}
+
+	log("published build %s in %s", version, time.Since(started).Round(time.Second))
+	return nil
+}
+
+// renderAll writes every station's JSON and PDF, rendering in parallel because
+// Typst is the whole cost of a build.
+func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, jobs int) error {
+	if jobs < 1 {
+		jobs = 1
+	}
+	queue := make(chan timetable.Station)
+	var done atomic.Int64
+	var once sync.Once
+	var failure error
+
+	var workers sync.WaitGroup
+	for range jobs {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			renderer := new(render.Renderer)
+			for station := range queue {
+				day := all.Day(station.Name)
+				base := filepath.Join(workDir, "s", station.Slug)
+				if err := writeJSON(base+".json", day); err != nil {
+					once.Do(func() { failure = err })
+					return
+				}
+				pdf, err := renderer.PDF(context.Background(), day)
+				if err != nil {
+					once.Do(func() { failure = fmt.Errorf("rendering %s: %w", station.Name, err) })
+					return
+				}
+				if err := os.WriteFile(base+".pdf", pdf, 0o644); err != nil {
+					once.Do(func() { failure = err })
+					return
+				}
+				if n := done.Add(1); n%500 == 0 {
+					log("rendered %d/%d", n, len(stations))
+				}
+			}
+		}()
+	}
+
+	for _, station := range stations {
+		queue <- station
+	}
+	close(queue)
+	workers.Wait()
+	return failure
+}
+
+// publish points <out>/current at the new build. rename(2) over a symlink is
+// atomic, so a web server serving out of it never sees a half-built tree.
+func publish(outDir, version string) error {
+	link := filepath.Join(outDir, "current")
+	staging := link + ".tmp"
+	if err := os.RemoveAll(staging); err != nil {
+		return err
+	}
+	if err := os.Symlink(filepath.Join("builds", version), staging); err != nil {
+		return err
+	}
+	return os.Rename(staging, link)
+}
+
+func prune(outDir, current string, keep int) error {
+	entries, err := os.ReadDir(filepath.Join(outDir, "builds"))
+	if err != nil {
+		return err
+	}
+	type build struct {
+		name string
+		at   time.Time
+	}
+	builds := []build{}
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == current {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		builds = append(builds, build{entry.Name(), info.ModTime()})
+	}
+	sort.Slice(builds, func(i, j int) bool { return builds[i].at.After(builds[j].at) })
+
+	for i, old := range builds {
+		if i < keep-1 {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(outDir, "builds", old.name)); err != nil {
+			return err
+		}
+		log("pruned old build %s", old.name)
+	}
+	return nil
+}
+
+// fingerprint names a build after the feed it came from, so republishing an
+// unchanged feed is a no-op and two builds of the same feed collide on purpose.
+func fingerprint(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	digest := sha256.New()
+	if _, err := io.Copy(digest, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(digest.Sum(nil))[:12], nil
+}
+
+func writeJSON(path string, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+func log(format string, args ...any) {
+	fmt.Printf("%s  %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+}
