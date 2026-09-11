@@ -185,6 +185,22 @@ func (b *Bounds) contains(lat, lon float64) bool {
 type Options struct {
 	Routes []string // only these route short names
 	Within *Bounds  // only stops inside this box
+	// Trim is removed from station names and headsigns wherever it occurs. VBB
+	// tags every Berlin stop "(Berlin)", which is noise in a timetable that is
+	// only about Berlin -- and it is not always the last thing in the name:
+	// "Hornstr.(Berlin)" omits the space, and 44 stops carry a platform
+	// qualifier after it, as in "S+U Rathaus Steglitz (Berlin) [Schloßstr.]".
+	Trim string
+}
+
+func (o Options) clean(name string) string {
+	if o.Trim == "" {
+		return name
+	}
+	token := strings.TrimSpace(o.Trim)
+	cleaned := strings.ReplaceAll(name, " "+token, "")
+	cleaned = strings.ReplaceAll(cleaned, token, "")
+	return strings.TrimSpace(strings.ReplaceAll(cleaned, "  ", " "))
 }
 
 // collect walks every trip once, grouping departures into stations. stationOf
@@ -239,7 +255,7 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), opts Options) 
 			}
 			if !seenStop[stop] {
 				seenStop[stop] = true
-				current.platforms[stop.Name]++
+				current.platforms[opts.clean(stop.Name)]++
 				if stop.Lat != 0 || stop.Lon != 0 {
 					current.latSum += float64(stop.Lat)
 					current.lonSum += float64(stop.Lon)
@@ -261,7 +277,7 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), opts Options) 
 				direction:  trip.Direction_id,
 				routeShort: trip.Route.Short_name,
 			}
-			headsign := headsignOf(&stopTime, trip)
+			headsign := opts.clean(headsignOf(&stopTime, trip))
 			if existing := departures[id]; existing != nil {
 				existing.days.or(days)
 				// keep the headsign of the service that runs most often, ties
@@ -311,7 +327,7 @@ func (f *Feed) Station(query string, opts Options) Day {
 // more than one marshalled timetable.
 func (f *Feed) All(opts Options) *Timetables {
 	stations := f.collect(func(stop *gtfs.Stop) (string, bool) {
-		return stop.Name, true
+		return opts.clean(stop.Name), true
 	}, opts)
 
 	names := make([]string, 0, len(stations))

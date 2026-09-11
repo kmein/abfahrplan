@@ -26,6 +26,7 @@ import (
 
 type meta struct {
 	Version    string    `json:"version"`
+	Bounds     []float64 `json:"bounds,omitempty"`
 	ValidFrom  string    `json:"valid_from"`
 	ValidTo    string    `json:"valid_to"`
 	BuiltAt    time.Time `json:"built_at"`
@@ -42,6 +43,7 @@ func main() {
 	limit := flag.Int("limit", 0, "Only generate this many stations (0 = all), for smoke tests")
 	bbox := flag.String("bbox", "", "Only stations inside minLon,minLat,maxLon,maxLat")
 	basemap := flag.String("basemap", "", "PMTiles basemap to publish alongside the site")
+	trim := flag.String("trim", "(Berlin)", "Remove this text from station names and headsigns")
 	flag.Parse()
 
 	var bounds *timetable.Bounds
@@ -54,13 +56,13 @@ func main() {
 		bounds = parsed
 	}
 
-	if err := generate(*gtfsFile, *outDir, *basemap, bounds, *jobs, *keep, *limit, *force); err != nil {
+	if err := generate(*gtfsFile, *outDir, *basemap, *trim, bounds, *jobs, *keep, *limit, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func generate(gtfsFile, outDir, basemap string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
+func generate(gtfsFile, outDir, basemap, trim string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
 	version, err := fingerprint(gtfsFile)
 	if err != nil {
 		return err
@@ -84,7 +86,7 @@ func generate(gtfsFile, outDir, basemap string, bounds *timetable.Bounds, jobs, 
 	}
 
 	log("collecting departures for every station")
-	all := feed.All(timetable.Options{Within: bounds})
+	all := feed.All(timetable.Options{Within: bounds, Trim: trim})
 	stations := all.Stations()
 	if limit > 0 && limit < len(stations) {
 		stations = stations[:limit]
@@ -115,14 +117,18 @@ func generate(gtfsFile, outDir, basemap string, bounds *timetable.Bounds, jobs, 
 	if err := writeJSON(filepath.Join(workDir, "stations.json"), stations); err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(workDir, "meta.json"), meta{
+	published := meta{
 		Version:    version,
 		ValidFrom:  from.Format("2006-01-02"),
 		ValidTo:    to.Format("2006-01-02"),
 		BuiltAt:    time.Now().UTC().Truncate(time.Second),
 		Stations:   len(stations),
 		Departures: departures,
-	}); err != nil {
+	}
+	if bounds != nil {
+		published.Bounds = []float64{bounds.MinLon, bounds.MinLat, bounds.MaxLon, bounds.MaxLat}
+	}
+	if err := writeJSON(filepath.Join(workDir, "meta.json"), published); err != nil {
 		return err
 	}
 

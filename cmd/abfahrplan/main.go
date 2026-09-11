@@ -23,6 +23,7 @@ func main() {
 	gtfsFile := flag.StringP("gtfs", "g", "GTFS.zip", "Path to the GTFS zip file")
 	routeNames := flag.StringSliceP("route", "r", []string{}, "Filter by route short names (can be specified multiple times)")
 	pdfFile := flag.StringP("pdf", "p", "", "Also render the timetable to this PDF file")
+	trim := flag.String("trim", "(Berlin)", "Remove this text from station names and headsigns")
 	flag.Parse()
 
 	fmt.Printf("Reading GTFS data from '%s'...\n", *gtfsFile)
@@ -36,7 +37,7 @@ func main() {
 	agencies, stops, routes, trips, fareAttributes := feed.Counts()
 	fmt.Printf("Done, parsed %d agencies, %d stops, %d routes, %d trips, %d fare attributes\n\n", agencies, stops, routes, trips, fareAttributes)
 
-	day := feed.Station(*stationName, timetable.Options{Routes: *routeNames})
+	day := feed.Station(*stationName, timetable.Options{Routes: *routeNames, Trim: *trim})
 
 	jsonData, err := json.MarshalIndent(day, "", "  ")
 	if err != nil {

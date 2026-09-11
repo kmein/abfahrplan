@@ -61,7 +61,18 @@ const colourByMode = [
 
 let map = null;
 
-function startMap() {
+function startMap(meta) {
+  // Fence the map to the area the site was generated for: outside it there are
+  // neither stations nor basemap tiles, so there is nothing to look at.
+  let fence = {};
+  if (meta && meta.bounds && meta.bounds.length === 4) {
+    const [west, south, east, north] = meta.bounds;
+    fence = {
+      maxBounds: [[west, south], [east, north]],
+      center: [(west + east) / 2, (south + north) / 2],
+    };
+  }
+
   map = new maplibregl.Map({
     container: "map",
     hash: true,
@@ -80,6 +91,7 @@ function startMap() {
     },
     center: [13.404, 52.52],
     zoom: 11,
+    ...fence,
   });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   map.on("load", addStations);
@@ -124,7 +136,7 @@ function select(slug) {
     .setHTML(`
       <div class="popup-name">${station.name}</div>
       <div>${badges(station)}</div>
-      <a class="sheet" href="s/${station.slug}.pdf">Fahrplan als PDF</a>
+      <a class="sheet" href="s/${station.slug}.pdf" target="_blank" rel="noopener">Fahrplan als PDF</a>
       <div style="margin-top:6px"><a href="s/${station.slug}.html">Abfahrten ansehen</a></div>`)
     .addTo(map);
 }
@@ -139,19 +151,21 @@ query.addEventListener("input", () => {
   show(needle === "" ? stations : stations.filter((s) => s.folded.includes(needle)));
 });
 
-fetch("meta.json").then((r) => r.json()).then((meta) => {
-  document.getElementById("validity").innerHTML =
-    `gültig ${meta.valid_from} bis ${meta.valid_to}<br>${meta.stations.toLocaleString("de")} Haltestellen`;
-});
-
 // The list and the search box do not need the map, so build them first: a
 // browser with WebGL turned off still gets a usable page rather than a blank
 // one, and a failure in MapLibre cannot take the whole script down with it.
-fetch("stations.json").then((r) => r.json()).then((loaded) => {
+Promise.all([
+  fetch("meta.json").then((r) => r.json()),
+  fetch("stations.json").then((r) => r.json()),
+]).then(([meta, loaded]) => {
+  document.getElementById("validity").innerHTML =
+    `gültig ${meta.valid_from} bis ${meta.valid_to}<br>${meta.stations.toLocaleString("de")} Haltestellen`;
+
   stations = loaded.map((s) => ({ ...s, folded: fold(s.name) }));
   show(stations);
+
   try {
-    startMap();
+    startMap(meta);
   } catch (error) {
     console.error("map unavailable:", error);
     document.getElementById("map").innerHTML =
