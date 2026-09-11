@@ -137,6 +137,14 @@ func newDay(station string, departureTimes map[int8][]departure) Day {
 				jsonHour.Directions = append(jsonHour.Directions, jsonDirection)
 			}
 		}
+		// grouping above walks maps, so order the result: two runs over the
+		// same feed should produce the same bytes
+		sort.Slice(jsonHour.Directions, func(i, j int) bool {
+			if jsonHour.Directions[i].RouteShort != jsonHour.Directions[j].RouteShort {
+				return jsonHour.Directions[i].RouteShort < jsonHour.Directions[j].RouteShort
+			}
+			return jsonHour.Directions[i].Direction < jsonHour.Directions[j].Direction
+		})
 		day.Hours = append(day.Hours, jsonHour)
 	}
 	return day

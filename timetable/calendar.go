@@ -36,6 +36,14 @@ func (d dayset) countMasked(mask dayset) int {
 	return n
 }
 
+func (d dayset) count() int {
+	n := 0
+	for _, word := range d {
+		n += bits.OnesCount64(word)
+	}
+	return n
+}
+
 func (d dayset) empty() bool {
 	for _, word := range d {
 		if word != 0 {

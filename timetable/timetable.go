@@ -53,6 +53,29 @@ type departure struct {
 	Weekdays   []string
 
 	days dayset
+	// how many days the service that supplied Headsign runs on, so a merge
+	// can keep the most representative one instead of whichever trip the map
+	// happened to yield first
+	headsignDays int
+}
+
+// headsignOf is where a trip is going, as shown on the vehicle. trip_headsign
+// is optional in GTFS and stop_times.txt may override it per stop, so take the
+// most specific one actually present rather than dereferencing blindly.
+func headsignOf(stopTime *gtfs.StopTime, trip *gtfs.Trip) string {
+	if headsign := stopTime.Headsign(); headsign != nil && *headsign != "" {
+		return *headsign
+	}
+	if trip.Headsign != nil && *trip.Headsign != "" {
+		return *trip.Headsign
+	}
+	if trip.Route == nil {
+		return ""
+	}
+	if trip.Route.Long_name != "" {
+		return trip.Route.Long_name
+	}
+	return trip.Route.Short_name
 }
 
 // departures sharing a key are the same departure seen from different trips,
@@ -92,8 +115,20 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []s
 			days = f.calendar.serviceDays(trip.Service)
 			daysOf[trip.Service] = days
 		}
+		dayCount := days.count()
 
-		for _, stopTime := range trip.StopTimes {
+		for i, stopTime := range trip.StopTimes {
+			// the last stop is where the trip terminates: an arrival, not a
+			// departure anyone can board
+			if i == len(trip.StopTimes)-1 {
+				continue
+			}
+			// pickup_type 1 is "no pickup available" -- the vehicle passes
+			// through or only lets passengers off
+			if stopTime.Pickup_type() == 1 {
+				continue
+			}
+
 			stop := stopTime.Stop()
 			name, ok := stationOf(stop)
 			if !ok {
@@ -117,16 +152,23 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []s
 				direction:  trip.Direction_id,
 				routeShort: trip.Route.Short_name,
 			}
+			headsign := headsignOf(&stopTime, trip)
 			if existing := departures[id]; existing != nil {
 				existing.days.or(days)
+				// keep the headsign of the service that runs most often, ties
+				// broken lexicographically, so consecutive runs agree
+				if dayCount > existing.headsignDays || (dayCount == existing.headsignDays && headsign < existing.Headsign) {
+					existing.Headsign, existing.headsignDays = headsign, dayCount
+				}
 				continue
 			}
 			departures[id] = &departure{
-				Minute:     id.minute,
-				RouteShort: id.routeShort,
-				Headsign:   *trip.Headsign,
-				Direction:  id.direction,
-				days:       slices.Clone(days),
+				Minute:       id.minute,
+				RouteShort:   id.routeShort,
+				Headsign:     headsign,
+				Direction:    id.direction,
+				days:         slices.Clone(days),
+				headsignDays: dayCount,
 			}
 		}
 	}
