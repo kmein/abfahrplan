@@ -36,6 +36,7 @@ type meta struct {
 
 func main() {
 	gtfsFile := flag.StringP("gtfs", "g", "GTFS.zip", "Path to the GTFS zip file")
+	feedURL := flag.String("url", "", "Download the feed from here into --gtfs first, skipping the build if it has not changed")
 	outDir := flag.StringP("out", "o", "site", "Directory to generate into")
 	jobs := flag.IntP("jobs", "j", runtime.NumCPU(), "How many timetables to render at once")
 	keep := flag.Int("keep", 2, "How many previous builds to keep")
@@ -56,13 +57,28 @@ func main() {
 		bounds = parsed
 	}
 
-	if err := generate(*gtfsFile, *outDir, *basemap, *trim, bounds, *jobs, *keep, *limit, *force); err != nil {
+	if err := generate(*gtfsFile, *feedURL, *outDir, *basemap, *trim, bounds, *jobs, *keep, *limit, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func generate(gtfsFile, outDir, basemap, trim string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
+func generate(gtfsFile, feedURL, outDir, basemap, trim string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
+	if feedURL != "" {
+		changed, err := fetchFeed(feedURL, gtfsFile)
+		if err != nil {
+			return err
+		}
+		// Nothing new to publish, and rebuilding would only burn ten minutes
+		// of CPU to produce the same tree.
+		if !changed && !force {
+			if _, err := os.Stat(filepath.Join(outDir, "current")); err == nil {
+				log("nothing to do")
+				return nil
+			}
+		}
+	}
+
 	version, err := fingerprint(gtfsFile)
 	if err != nil {
 		return err
