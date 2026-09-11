@@ -19,16 +19,30 @@ const MODE_COLOUR = {
 
 // The basemap is deliberately recessive: it exists so people can tell which
 // dot is their stop, not to be looked at. Protomaps v4 layer names.
+// Protomaps packs several geometry types into one layer, so every fill has to
+// say it means polygons.
+const POLYGONS = ["==", ["geometry-type"], "Polygon"];
+const LINES = ["==", ["geometry-type"], "LineString"];
+
 const basemapLayers = [
   { id: "earth", type: "background", paint: { "background-color": "#F6F5F2" } },
   { id: "landcover", type: "fill", source: "basemap", "source-layer": "landcover",
-    paint: { "fill-color": "#EDEFE8", "fill-opacity": 0.7 } },
+    filter: POLYGONS, paint: { "fill-color": "#EDEFE8", "fill-opacity": 0.7 } },
   { id: "landuse", type: "fill", source: "basemap", "source-layer": "landuse",
-    paint: { "fill-color": "#EEEDE9" } },
+    filter: POLYGONS, paint: { "fill-color": "#EEEDE9" } },
+  // The water layer holds both: lakes as polygons and rivers and canals as
+  // lines. Filling it wholesale fills the lines too, and an open line filled
+  // as if it were a ring comes out as a fan of triangles across the map.
   { id: "water", type: "fill", source: "basemap", "source-layer": "water",
-    paint: { "fill-color": "#CBDCEA" } },
+    filter: POLYGONS, paint: { "fill-color": "#CBDCEA" } },
+  { id: "waterway", type: "line", source: "basemap", "source-layer": "water",
+    filter: LINES,
+    paint: {
+      "line-color": "#CBDCEA",
+      "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0.6, 13, 2, 17, 8],
+    } },
   { id: "buildings", type: "fill", source: "basemap", "source-layer": "buildings",
-    minzoom: 14, paint: { "fill-color": "#E4E2DE" } },
+    minzoom: 14, filter: POLYGONS, paint: { "fill-color": "#E4E2DE" } },
   { id: "roads-minor", type: "line", source: "basemap", "source-layer": "roads",
     minzoom: 12, filter: ["!in", "kind", "highway", "major_road"],
     paint: { "line-color": "#FFFFFF", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.5, 17, 4] } },
