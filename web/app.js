@@ -112,11 +112,29 @@ const badges = (station) => station.routes.slice(0, 8).map((route, i) => {
   return `<span class="badge ${kind}">${route}</span>`;
 }).join("");
 
-function show(list) {
+// Searching "tempelhof" listed Gradestr./Tempelhofer Weg and Rathaus Tempelhof
+// above S+U Tempelhof, because the list was alphabetical and nothing else. Rank
+// by what a station is first, then by how well the name matches.
+const MODE_ORDER = { sbahn: 0, ubahn: 1, rail: 2, tram: 3, ferry: 4, bus: 5 };
+
+function ranked(list, needle) {
+  return list.slice().sort((a, b) => {
+    const byMode = (MODE_ORDER[a.kind] ?? 9) - (MODE_ORDER[b.kind] ?? 9);
+    if (byMode !== 0) return byMode;
+    if (needle) {
+      const starts = (s) => (s.folded.startsWith(needle) ? 0 : 1);
+      const byPrefix = starts(a) - starts(b);
+      if (byPrefix !== 0) return byPrefix;
+    }
+    return a.name.localeCompare(b.name, "de");
+  });
+}
+
+function show(list, needle) {
   count.textContent = list.length === stations.length
     ? `${stations.length.toLocaleString("de")} Haltestellen`
     : `${list.length.toLocaleString("de")} Treffer`;
-  results.innerHTML = list.slice(0, 200).map((station) => `
+  results.innerHTML = ranked(list, needle).slice(0, 200).map((station) => `
     <button class="hit" data-slug="${station.slug}">
       <strong>${station.name}</strong>
       <span class="lines">${badges(station)}</span>
@@ -148,7 +166,7 @@ results.addEventListener("click", (event) => {
 
 query.addEventListener("input", () => {
   const needle = fold(query.value);
-  show(needle === "" ? stations : stations.filter((s) => s.folded.includes(needle)));
+  show(needle === "" ? stations : stations.filter((s) => s.folded.includes(needle)), needle);
 });
 
 // The list and the search box do not need the map, so build them first: a
@@ -162,7 +180,7 @@ Promise.all([
     `gültig ${meta.valid_from} bis ${meta.valid_to}<br>${meta.stations.toLocaleString("de")} Haltestellen`;
 
   stations = loaded.map((s) => ({ ...s, folded: fold(s.name) }));
-  show(stations);
+  show(stations, "");
 
   try {
     startMap(meta);
