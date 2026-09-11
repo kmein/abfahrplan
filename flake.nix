@@ -39,6 +39,10 @@
         };
       });
 
+      checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
+        vm = import ./nix/test.nix { pkgs = nixpkgs.legacyPackages.${system}; };
+      });
+
       formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);
     };
 }

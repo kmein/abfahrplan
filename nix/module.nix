@@ -38,12 +38,22 @@ in
     };
 
     feedUrl = mkOption {
-      type = types.str;
+      type = types.nullOr types.str;
       default = "https://unternehmen.vbb.de/fileadmin/user_upload/VBB/Dokumente/API-Datensaetze/gtfs-mastscharf/GTFS.zip";
       description = ''
         Where to fetch the GTFS feed. Fetched conditionally: if the server says
         it has not changed, the build is skipped entirely.
+
+        Null fetches nothing and uses {option}`feedFile` as it stands, for
+        mirroring the feed yourself.
       '';
+    };
+
+    feedFile = mkOption {
+      type = types.path;
+      default = "${cfg.stateDir}/GTFS.zip";
+      defaultText = lib.literalExpression ''"''${config.services.abfahrplan.stateDir}/GTFS.zip"'';
+      description = "Where the feed is kept. {option}`feedUrl` downloads into it.";
     };
 
     bbox = mkOption {
@@ -188,16 +198,21 @@ in
         ExecStart = lib.escapeShellArgs (
           [
             "${cfg.package}/bin/abfahrplan-generate"
-            "--url"
-            cfg.feedUrl
             "--gtfs"
-            "${cfg.stateDir}/GTFS.zip"
+            # interpolated, not toString: a store path has to be referenced as
+            # a string to become a dependency, or the file is missing wherever
+            # the closure is copied to
+            "${cfg.feedFile}"
             "--out"
             cfg.stateDir
             "--trim"
             cfg.trim
             "--keep"
             (toString cfg.keep)
+          ]
+          ++ optionals (cfg.feedUrl != null) [
+            "--url"
+            cfg.feedUrl
           ]
           ++ optionals (cfg.bbox != null) [
             "--bbox"
