@@ -1,4 +1,6 @@
-#let timetable = json("timetable.json")
+// the default is the file this document sits next to, which is what the
+// embedded renderer writes; the Makefile points it at the repo root instead
+#let timetable = json(sys.inputs.at("data", default: "timetable.json"))
 
 // BVG house colours, sampled from BVG's own print PDFs (Linienverlauf 184, U6, M4)
 #let bvg-yellow = rgb("#FDE103")

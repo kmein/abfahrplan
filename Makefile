@@ -6,8 +6,8 @@ GTFS.zip:
 abfahrplan: $(wildcard *.go cmd/abfahrplan/*.go timetable/*.go)
 	go build ./cmd/abfahrplan
 
-timetable.pdf: timetable.typ timetable.json
-	typst compile $<
+timetable.pdf: render/timetable.typ timetable.json
+	typst compile --root . --input data=/timetable.json $< $@
 
 timetable.json: abfahrplan GTFS.zip
 	./abfahrplan -s "Albrechtstr" # -r 140 -r M46
