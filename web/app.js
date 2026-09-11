@@ -5,7 +5,17 @@ import * as maplibregl from "./maplibre-gl.mjs";
 // protocol has to exist before any style references a pmtiles:// url
 maplibregl.addProtocol("pmtiles", new pmtiles.Protocol().tile);
 
-const BUS = "#A0148E", UBAHN = "#1565AF", SBAHN = "#008D4F", INK = "#242021";
+// BVG's own colours for bus, U-Bahn and tram, sampled from their print PDFs;
+// S-Bahn green is the S-Bahn's. Regional rail and ferry are neutral -- they are
+// rare inside Berlin and not BVG's to colour.
+const MODE_COLOUR = {
+  sbahn: "#008D4F",
+  ubahn: "#1565AF",
+  tram: "#ED1C24",
+  bus: "#A0148E",
+  rail: "#555150",
+  ferry: "#0B7285",
+};
 
 // The basemap is deliberately recessive: it exists so people can tell which
 // dot is their stop, not to be looked at. Protomaps v4 layer names.
@@ -37,11 +47,16 @@ const basemapLayers = [
     paint: { "text-color": "#7A7775", "text-halo-color": "#F6F5F2", "text-halo-width": 1.4 } },
 ];
 
-const colourByRoute = [
-  "case",
-  ["==", ["slice", ["get", "lead"], 0, 1], "U"], UBAHN,
-  ["==", ["slice", ["get", "lead"], 0, 1], "S"], SBAHN,
-  BUS,
+// A station wears the colour of the most distinctive mode that calls there, so
+// an S-Bahn stop with a bus outside it still reads as an S-Bahn stop.
+const colourByMode = [
+  "match", ["get", "kind"],
+  "sbahn", MODE_COLOUR.sbahn,
+  "ubahn", MODE_COLOUR.ubahn,
+  "tram", MODE_COLOUR.tram,
+  "rail", MODE_COLOUR.rail,
+  "ferry", MODE_COLOUR.ferry,
+  MODE_COLOUR.bus,
 ];
 
 let map = null;
@@ -80,9 +95,9 @@ const results = document.getElementById("results");
 const count = document.getElementById("count");
 const query = document.getElementById("q");
 
-const badges = (routes) => routes.slice(0, 8).map((route) => {
-  const kind = route.startsWith("U") ? " u" : route.startsWith("S") ? " s" : "";
-  return `<span class="badge${kind}">${route}</span>`;
+const badges = (station) => station.routes.slice(0, 8).map((route, i) => {
+  const kind = (station.kinds && station.kinds[i]) || "bus";
+  return `<span class="badge ${kind}">${route}</span>`;
 }).join("");
 
 function show(list) {
@@ -92,7 +107,7 @@ function show(list) {
   results.innerHTML = list.slice(0, 200).map((station) => `
     <button class="hit" data-slug="${station.slug}">
       <strong>${station.name}</strong>
-      <span class="lines">${badges(station.routes)}</span>
+      <span class="lines">${badges(station)}</span>
     </button>`).join("");
 }
 
@@ -108,7 +123,7 @@ function select(slug) {
     .setLngLat([station.lon, station.lat])
     .setHTML(`
       <div class="popup-name">${station.name}</div>
-      <div>${badges(station.routes)}</div>
+      <div>${badges(station)}</div>
       <a class="sheet" href="s/${station.slug}.pdf">Fahrplan als PDF</a>
       <div style="margin-top:6px"><a href="s/${station.slug}.html">Abfahrten ansehen</a></div>`)
     .addTo(map);
@@ -152,7 +167,7 @@ function addStations() {
       features: stations.map((s) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [s.lon, s.lat] },
-        properties: { name: s.name, slug: s.slug, lead: s.routes[0] || "" },
+        properties: { name: s.name, slug: s.slug, kind: s.kind || "bus" },
       })),
     },
   });
@@ -165,7 +180,7 @@ function addStations() {
     type: "circle",
     source: "stations",
     paint: {
-      "circle-color": colourByRoute,
+      "circle-color": colourByMode,
       "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 1.8, 12, 3, 14, 4.5, 17, 8],
       "circle-stroke-width": ["interpolate", ["linear"], ["zoom"], 11, 0.4, 14, 1.4],
       "circle-stroke-color": "#FDFDFC",

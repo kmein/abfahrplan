@@ -227,7 +227,13 @@ func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir 
 					once.Do(func() { failure = err })
 					return
 				}
-				if err := web.Station(page, station.Slug, day, pages); err != nil {
+				kinds := make(map[string]string, len(station.Routes))
+				for i, route := range station.Routes {
+					if i < len(station.Kinds) {
+						kinds[route] = station.Kinds[i]
+					}
+				}
+				if err := web.Station(page, station.Slug, day, pages, kinds); err != nil {
 					page.Close()
 					once.Do(func() { failure = fmt.Errorf("page for %s: %w", station.Name, err) })
 					return

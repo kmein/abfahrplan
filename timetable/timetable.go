@@ -93,8 +93,8 @@ type key struct {
 
 type station struct {
 	byHour    map[int8][]departure
-	platforms map[string]int // stop name -> platforms seen under it
-	routes    map[string]bool
+	platforms map[string]int    // stop name -> platforms seen under it
+	routes    map[string]string // route short name -> mode
 	latSum    float64
 	lonSum    float64
 	coords    int
@@ -109,7 +109,33 @@ type Station struct {
 	Lat        float64  `json:"lat"`
 	Lon        float64  `json:"lon"`
 	Routes     []string `json:"routes"`
+	Kinds      []string `json:"kinds"` // one per entry in Routes
+	Kind       string   `json:"kind"`  // what the station as a whole is
 	Departures int      `json:"departures"`
+}
+
+// The modes a station can be, most distinctive first: a stop served by both the
+// S-Bahn and a bus is an S-Bahn station to anyone looking for it.
+var modeRank = []string{"sbahn", "ubahn", "rail", "tram", "ferry", "bus"}
+
+// modeOf maps a GTFS route type to a mode. The VBB feed uses the extended
+// route types, which is what makes tram and bus distinguishable at all -- M4
+// is a tram and M19 a bus, and nothing in their names says so.
+func modeOf(routeType int16) string {
+	switch {
+	case routeType == 109 || routeType == 2:
+		return "sbahn"
+	case routeType == 1 || (routeType >= 400 && routeType <= 405):
+		return "ubahn"
+	case routeType >= 100 && routeType < 200:
+		return "rail"
+	case routeType == 0 || routeType == 900:
+		return "tram"
+	case routeType == 4 || routeType == 1000 || routeType == 1200:
+		return "ferry"
+	default:
+		return "bus"
+	}
 }
 
 // Timetables is every station in the feed, built from one pass over it.
@@ -207,7 +233,7 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), opts Options) 
 				current = &station{
 					byHour:    make(map[int8][]departure),
 					platforms: make(map[string]int),
-					routes:    make(map[string]bool),
+					routes:    make(map[string]string),
 				}
 				stations[name] = current
 			}
@@ -220,7 +246,13 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), opts Options) 
 					current.coords++
 				}
 			}
-			current.routes[trip.Route.Short_name] = true
+			// A short name can carry more than one route type -- M1 is a tram and
+			// also the bus that replaces it -- so keep the most distinctive mode
+			// rather than whichever trip the map happened to yield last.
+			mode := modeOf(trip.Route.Type)
+			if known, seen := current.routes[trip.Route.Short_name]; !seen || slices.Index(modeRank, mode) < slices.Index(modeRank, known) {
+				current.routes[trip.Route.Short_name] = mode
+			}
 
 			id := key{
 				station:    name,
@@ -310,7 +342,17 @@ func (f *Feed) All(opts Options) *Timetables {
 		}
 		sort.Strings(routes)
 
-		entry := Station{Name: name, Slug: unique, Routes: routes, Departures: current.count}
+		kinds := make([]string, len(routes))
+		kind := "bus"
+		rank := len(modeRank)
+		for i, route := range routes {
+			kinds[i] = current.routes[route]
+			if at := slices.Index(modeRank, kinds[i]); at >= 0 && at < rank {
+				kind, rank = kinds[i], at
+			}
+		}
+
+		entry := Station{Name: name, Slug: unique, Routes: routes, Kinds: kinds, Kind: kind, Departures: current.count}
 		if current.coords > 0 {
 			// five decimals is about a metre; the raw float32s carry conversion
 			// noise that would only bloat the index every visitor downloads

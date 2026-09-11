@@ -5,6 +5,9 @@
   --bus: #A0148E;
   --ubahn: #1565AF;
   --sbahn: #008D4F;
+  --tram: #ED1C24;
+  --rail: #555150;
+  --ferry: #0B7285;
   --ink: #242021;
   --band: #ECEBEB;
   --quiet: #605D5E;
@@ -115,8 +118,11 @@ main {
   font-weight: 700;
   line-height: 1.35;
 }
-.badge.u { background: var(--ubahn); }
-.badge.s { background: var(--sbahn); }
+.badge.ubahn { background: var(--ubahn); }
+.badge.sbahn { background: var(--sbahn); }
+.badge.tram  { background: var(--tram); }
+.badge.rail  { background: var(--rail); }
+.badge.ferry { background: var(--ferry); }
 
 /* ---- map ------------------------------------------------------------- */
 

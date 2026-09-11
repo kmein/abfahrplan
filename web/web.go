@@ -57,21 +57,19 @@ type Meta struct {
 }
 
 type stationPage struct {
-	Slug string
-	Day  timetable.Day
-	Meta Meta
+	Slug  string
+	Day   timetable.Day
+	Meta  Meta
+	Kinds map[string]string // route short name -> mode
 }
 
 var station = template.Must(template.New("station").Funcs(template.FuncMap{
-	"badge": func(route string) template.HTML {
-		kind := ""
-		switch {
-		case strings.HasPrefix(route, "U"):
-			kind = " u"
-		case strings.HasPrefix(route, "S"):
-			kind = " s"
+	"badge": func(route string, kinds map[string]string) template.HTML {
+		kind := kinds[route]
+		if kind == "" {
+			kind = "bus"
 		}
-		return template.HTML(fmt.Sprintf(`<span class="badge%s">%s</span>`, kind, template.HTMLEscapeString(route)))
+		return template.HTML(fmt.Sprintf(`<span class="badge %s">%s</span>`, kind, template.HTMLEscapeString(route)))
 	},
 	"arrow": func(direction int8) string {
 		if direction == 0 {
@@ -116,7 +114,8 @@ func servedWeekdays(excluded []string) string {
 	return strings.Join(served, ",")
 }
 
-// Station writes one station's HTML page.
-func Station(out io.Writer, slug string, day timetable.Day, meta Meta) error {
-	return station.Execute(out, stationPage{Slug: slug, Day: day, Meta: meta})
+// Station writes one station's HTML page. kinds maps each route short name to
+// its mode, so the badges match the colours on the map.
+func Station(out io.Writer, slug string, day timetable.Day, meta Meta, kinds map[string]string) error {
+	return station.Execute(out, stationPage{Slug: slug, Day: day, Meta: meta, Kinds: kinds})
 }

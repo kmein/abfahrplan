@@ -31,7 +31,7 @@
         {{- if eq $i 0 }}
         <td class="hour" rowspan="{{ $rows }}">{{ $hour.Hour }}</td>
         {{- end }}
-        <td>{{ badge $direction.RouteShort }} {{ arrow $direction.Direction }}</td>
+        <td>{{ badge $direction.RouteShort $.Kinds }} {{ arrow $direction.Direction }}</td>
         <td>{{ minutes $direction.DeparturesMonFri }}</td>
         <td>{{ minutes $direction.DeparturesSat }}</td>
         <td>{{ minutes $direction.DeparturesSun }}</td>
