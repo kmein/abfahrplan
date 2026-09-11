@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Abfahrplan</title>
+<link rel="stylesheet" href="static/maplibre-gl.css">
+<link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+<header>
+  <div class="stop-sign">H</div>
+  <h1>Abfahrplan</h1>
+  <div class="validity" id="validity"></div>
+</header>
+
+<main>
+  <div id="panel">
+    <input id="q" type="search" placeholder="Haltestelle suchen…" autocomplete="off" autofocus>
+    <div id="count"></div>
+    <div id="results"></div>
+  </div>
+  <div id="map"></div>
+</main>
+
+<script src="static/pmtiles.js"></script>
+<script type="module" src="static/app.js"></script>
+</body>
+</html>

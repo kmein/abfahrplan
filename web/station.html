@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .Day.Station }} — Abfahrplan</title>
+<link rel="stylesheet" href="../static/app.css">
+</head>
+<body>
+<header>
+  <div class="stop-sign">H</div>
+  <h1>{{ .Day.Station }}</h1>
+  <div class="validity">gültig {{ .Meta.ValidFrom }} bis {{ .Meta.ValidTo }}</div>
+</header>
+
+<div class="station">
+  <p>
+    <a class="sheet" href="{{ .Slug }}.pdf">Fahrplan als PDF</a>
+    <a style="margin-left:10px" href="../">zur Karte</a>
+  </p>
+
+  <table>
+    <thead>
+      <tr><th></th><th>Linie</th><th>Mo–Fr</th><th>Sa</th><th>So</th></tr>
+    </thead>
+    <tbody>
+      {{- range $hour := .Day.Hours }}
+      {{- $rows := len $hour.Directions }}
+      {{- range $i, $direction := $hour.Directions }}
+      <tr>
+        {{- if eq $i 0 }}
+        <td class="hour" rowspan="{{ $rows }}">{{ $hour.Hour }}</td>
+        {{- end }}
+        <td>{{ badge $direction.RouteShort }} {{ arrow $direction.Direction }}</td>
+        <td>{{ minutes $direction.DeparturesMonFri }}</td>
+        <td>{{ minutes $direction.DeparturesSat }}</td>
+        <td>{{ minutes $direction.DeparturesSun }}</td>
+      </tr>
+      {{- end }}
+      {{- end }}
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  Alle Angaben ohne Gewähr. Erzeugt aus den VBB-GTFS-Daten, gültig ab {{ .Meta.ValidFrom }}.
+  <a href="https://github.com/kmein/abfahrplan">Quelltext</a>.
+</footer>
+</body>
+</html>

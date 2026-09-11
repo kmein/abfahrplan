@@ -20,6 +20,7 @@ import (
 
 	"github.com/kmein/abfahrplan/render"
 	"github.com/kmein/abfahrplan/timetable"
+	"github.com/kmein/abfahrplan/web"
 	flag "github.com/spf13/pflag"
 )
 
@@ -97,6 +98,12 @@ func generate(gtfsFile, outDir, basemap string, bounds *timetable.Bounds, jobs, 
 		len(stations), departures, from.Format("2006-01-02"), to.Format("2006-01-02"), time.Since(started).Round(time.Second))
 
 	buildDir := filepath.Join(outDir, "builds", version)
+	if _, err := os.Stat(buildDir); err == nil {
+		// Rebuilding a feed we already have. Publish beside the old build and
+		// let pruning drop it afterwards: deleting it here would take out the
+		// directory `current` still points at, and with it the live site.
+		buildDir = fmt.Sprintf("%s-%d", buildDir, time.Now().Unix())
+	}
 	workDir := buildDir + ".tmp"
 	if err := os.RemoveAll(workDir); err != nil {
 		return err
@@ -126,30 +133,65 @@ func generate(gtfsFile, outDir, basemap string, bounds *timetable.Bounds, jobs, 
 		log("published basemap from %s", basemap)
 	}
 
-	if err := renderAll(all, stations, workDir, jobs); err != nil {
+	if err := writeFrontEnd(workDir); err != nil {
+		return fmt.Errorf("writing the front end: %w", err)
+	}
+
+	pages := web.Meta{ValidFrom: from.Format("2006-01-02"), ValidTo: to.Format("2006-01-02")}
+	if err := renderAll(all, stations, workDir, pages, jobs); err != nil {
 		return err
 	}
 
-	if err := os.RemoveAll(buildDir); err != nil {
-		return err
-	}
 	if err := os.Rename(workDir, buildDir); err != nil {
 		return err
 	}
-	if err := publish(outDir, version); err != nil {
+	if err := publish(outDir, filepath.Base(buildDir)); err != nil {
 		return err
 	}
-	if err := prune(outDir, version, keep); err != nil {
+	if err := prune(outDir, filepath.Base(buildDir), keep); err != nil {
 		return err
 	}
 
-	log("published build %s in %s", version, time.Since(started).Round(time.Second))
+	log("published build %s in %s", filepath.Base(buildDir), time.Since(started).Round(time.Second))
 	return nil
 }
 
 // renderAll writes every station's JSON and PDF, rendering in parallel because
 // Typst is the whole cost of a build.
-func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, jobs int) error {
+// writeFrontEnd unpacks the embedded page, its stylesheet and script, and the
+// vendored MapLibre and PMTiles libraries with the map's glyph ranges. Nothing
+// here is fetched at runtime, so the published tree has no CDN to outlive it.
+func writeFrontEnd(workDir string) error {
+	index, err := web.Index()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "index.html"), index, 0o644); err != nil {
+		return err
+	}
+
+	files, err := web.StaticFiles()
+	if err != nil {
+		return err
+	}
+	for target, source := range files {
+		content, err := web.Asset(source)
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(workDir, "static", target)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			return err
+		}
+	}
+	log("wrote the front end (%d static files)", len(files)+1)
+	return nil
+}
+
+func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, pages web.Meta, jobs int) error {
 	if jobs < 1 {
 		jobs = 1
 	}
@@ -177,6 +219,20 @@ func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir 
 					return
 				}
 				if err := os.WriteFile(base+".pdf", pdf, 0o644); err != nil {
+					once.Do(func() { failure = err })
+					return
+				}
+				page, err := os.Create(base + ".html")
+				if err != nil {
+					once.Do(func() { failure = err })
+					return
+				}
+				if err := web.Station(page, station.Slug, day, pages); err != nil {
+					page.Close()
+					once.Do(func() { failure = fmt.Errorf("page for %s: %w", station.Name, err) })
+					return
+				}
+				if err := page.Close(); err != nil {
 					once.Do(func() { failure = err })
 					return
 				}
