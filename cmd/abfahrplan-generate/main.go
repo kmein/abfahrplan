@@ -151,10 +151,15 @@ func generate(gtfsFile, feedURL, outDir, basemap, trim, impressum, datenschutz s
 	}
 
 	if basemap != "" {
-		if err := copyFile(basemap, filepath.Join(workDir, "basemap.pmtiles")); err != nil {
+		// A missing basemap is not worth failing a build over: the map falls
+		// back to stations on a blank ground, and everything else still works.
+		if _, err := os.Stat(basemap); err != nil {
+			log("no basemap at %s, the map will have no tiles", basemap)
+		} else if err := copyFile(basemap, filepath.Join(workDir, "basemap.pmtiles")); err != nil {
 			return fmt.Errorf("publishing basemap: %w", err)
+		} else {
+			log("published basemap from %s", basemap)
 		}
-		log("published basemap from %s", basemap)
 	}
 
 	site := web.Site{

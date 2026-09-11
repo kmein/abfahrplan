@@ -7,7 +7,14 @@
 
 let
   cfg = config.services.abfahrplan;
-  inherit (lib) mkEnableOption mkOption mkIf types optionals optionalString;
+  inherit (lib)
+    mkEnableOption
+    mkOption
+    mkIf
+    types
+    optionals
+    optionalString
+    ;
 in
 {
   options.services.abfahrplan = {
@@ -50,18 +57,42 @@ in
       '';
     };
 
-    basemap = mkOption {
-      type = types.nullOr types.path;
-      default = null;
-      example = "/var/lib/abfahrplan/berlin.pmtiles";
-      description = ''
-        A PMTiles basemap, published alongside the site and served by byte
-        range. Cut one for the same area as {option}`bbox`, for example
-        `pmtiles extract https://build.protomaps.com/<date>.pmtiles berlin.pmtiles
-        --bbox=13.0883,52.3383,13.7612,52.6755 --maxzoom=14`, which comes to
-        about 30 MB for Berlin. Without it the map draws stations on an empty
-        background, which is legible for a region and not much use in a city.
-      '';
+    basemap = {
+      enable = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Cut a PMTiles basemap from the Protomaps daily planet and keep it
+          fresh, covering the same area as {option}`bbox`. Berlin at zoom 14
+          comes to about 30 MB and takes a quarter of a minute.
+
+          Turn this off to bring your own file at {option}`basemap.path`, or to
+          run without one: the map then draws stations on a blank ground, which
+          reads well for a region and poorly for a city.
+        '';
+      };
+
+      path = mkOption {
+        type = types.path;
+        default = "${cfg.stateDir}/basemap.pmtiles";
+        defaultText = lib.literalExpression ''"''${config.services.abfahrplan.stateDir}/basemap.pmtiles"'';
+        description = "Where the basemap lives. Published into each build and served by byte range.";
+      };
+
+      maxZoom = mkOption {
+        type = types.int;
+        default = 14;
+        description = "Deepest zoom to cut. Each level beyond this multiplies the size.";
+      };
+
+      refreshSchedule = mkOption {
+        type = types.str;
+        default = "monthly";
+        description = ''
+          How often to re-cut the basemap, as a systemd `OnCalendar`
+          expression. Streets move slowly; monthly is generous.
+        '';
+      };
     };
 
     trim = mkOption {
@@ -139,7 +170,10 @@ in
 
     systemd.services.abfahrplan-generate = {
       description = "Generate the abfahrplan timetable site";
-      after = [ "network-online.target" ];
+      after = [
+        "network-online.target"
+      ]
+      ++ optionals cfg.basemap.enable [ "abfahrplan-basemap.service" ];
       wants = [ "network-online.target" ];
       # Populate a fresh machine without waiting for the first timer tick.
       wantedBy = [ "multi-user.target" ];
@@ -154,15 +188,29 @@ in
         ExecStart = lib.escapeShellArgs (
           [
             "${cfg.package}/bin/abfahrplan-generate"
-            "--url" cfg.feedUrl
-            "--gtfs" "${cfg.stateDir}/GTFS.zip"
-            "--out" cfg.stateDir
-            "--trim" cfg.trim
-            "--keep" (toString cfg.keep)
+            "--url"
+            cfg.feedUrl
+            "--gtfs"
+            "${cfg.stateDir}/GTFS.zip"
+            "--out"
+            cfg.stateDir
+            "--trim"
+            cfg.trim
+            "--keep"
+            (toString cfg.keep)
           ]
-          ++ optionals (cfg.bbox != null) [ "--bbox" cfg.bbox ]
-          ++ optionals (cfg.basemap != null) [ "--basemap" (toString cfg.basemap) ]
-          ++ optionals (cfg.jobs != null) [ "--jobs" (toString cfg.jobs) ]
+          ++ optionals (cfg.bbox != null) [
+            "--bbox"
+            cfg.bbox
+          ]
+          ++ [
+            "--basemap"
+            (toString cfg.basemap.path)
+          ]
+          ++ optionals (cfg.jobs != null) [
+            "--jobs"
+            (toString cfg.jobs)
+          ]
         );
 
         # A batch job that touches one directory and one URL.
@@ -177,7 +225,11 @@ in
         ProtectKernelTunables = true;
         ProtectKernelModules = true;
         ProtectControlGroups = true;
-        RestrictAddressFamilies = [ "AF_INET" "AF_INET6" "AF_UNIX" ];
+        RestrictAddressFamilies = [
+          "AF_INET"
+          "AF_INET6"
+          "AF_UNIX"
+        ];
         RestrictNamespaces = true;
         RestrictRealtime = true;
         RestrictSUIDSGID = true;
@@ -187,6 +239,83 @@ in
         SystemCallFilter = [ "@system-service" ];
         SystemCallArchitectures = "native";
         UMask = "0022"; # the web server has to read what this writes
+      };
+    };
+
+    # Cutting the basemap is its own job: it fails independently, on its own
+    # schedule, and a failure leaves the previous file and the site alone.
+    systemd.services.abfahrplan-basemap = mkIf cfg.basemap.enable {
+      description = "Cut a PMTiles basemap for abfahrplan";
+      after = [ "network-online.target" ];
+      wants = [ "network-online.target" ];
+      before = [ "abfahrplan-generate.service" ];
+      wantedBy = [ "multi-user.target" ];
+
+      path = [
+        pkgs.pmtiles
+        pkgs.curl
+        pkgs.coreutils
+      ];
+
+      script = ''
+        set -euo pipefail
+        target=${lib.escapeShellArg (toString cfg.basemap.path)}
+        bbox=${lib.escapeShellArg (if cfg.bbox != null then cfg.bbox else "-180,-85,180,85")}
+
+        # Protomaps publishes dated builds and drops old ones; there is no
+        # "latest" to point at, so walk back until one answers.
+        for back in $(seq 0 10); do
+          day=$(date -u -d "-$back day" +%Y%m%d)
+          url="https://build.protomaps.com/$day.pmtiles"
+          if ! curl -sfI --max-time 30 "$url" >/dev/null; then
+            continue
+          fi
+          echo "cutting $bbox from $url"
+          pmtiles extract "$url" "$target.new" --bbox="$bbox" --maxzoom=${toString cfg.basemap.maxZoom}
+          mv -f "$target.new" "$target"
+          echo "basemap is $(du -h "$target" | cut -f1)"
+          exit 0
+        done
+
+        echo "no Protomaps build answered in the last 10 days; keeping the basemap we have" >&2
+        exit 1
+      '';
+
+      serviceConfig = {
+        Type = "oneshot";
+        User = cfg.user;
+        Group = cfg.group;
+        StateDirectory = baseNameOf cfg.stateDir;
+        WorkingDirectory = cfg.stateDir;
+        # The first run downloads tens of megabytes; never at the expense of
+        # anything else on the machine.
+        Nice = 19;
+        IOSchedulingClass = "idle";
+        ReadWritePaths = [ cfg.stateDir ];
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        PrivateTmp = true;
+        NoNewPrivileges = true;
+        RestrictAddressFamilies = [
+          "AF_INET"
+          "AF_INET6"
+          "AF_UNIX"
+        ];
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        CapabilityBoundingSet = [ "" ];
+        SystemCallArchitectures = "native";
+        UMask = "0022";
+      };
+    };
+
+    systemd.timers.abfahrplan-basemap = mkIf cfg.basemap.enable {
+      description = "Refresh the abfahrplan basemap";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnCalendar = cfg.basemap.refreshSchedule;
+        RandomizedDelaySec = "12h";
+        Persistent = true;
       };
     };
 
