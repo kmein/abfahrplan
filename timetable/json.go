@@ -16,6 +16,9 @@ type Direction struct {
 	DeparturesSun    []Departure `json:"departuresSun"`
 	Direction        int8        `json:"direction"`
 	RouteShort       string      `json:"route_short"`
+	// Kind is the line's mode, so the sheet can colour a tram as a tram. The
+	// name cannot be trusted for this: M4 is a tram and M19 a bus.
+	Kind string `json:"kind"`
 }
 
 type Hour struct {
@@ -71,7 +74,7 @@ func isSuperset(set, subset []string) bool {
 	return true
 }
 
-func newDay(station string, departureTimes map[int8][]departure) Day {
+func newDay(station string, departureTimes map[int8][]departure, modes map[string]string) Day {
 	day := Day{
 		Hours:   make([]Hour, 0),
 		Station: station,
@@ -100,8 +103,13 @@ func newDay(station string, departureTimes map[int8][]departure) Day {
 				directionMap[dep.Direction] = append(directionMap[dep.Direction], dep)
 			}
 			for direction, ddeps := range directionMap {
+				kind := modes[routeShort]
+				if kind == "" {
+					kind = "bus"
+				}
 				jsonDirection := Direction{
 					RouteShort:       routeShort,
+					Kind:             kind,
 					Direction:        direction,
 					DeparturesMonFri: make([]Departure, 0),
 					DeparturesSat:    make([]Departure, 0),

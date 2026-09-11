@@ -317,9 +317,9 @@ func (f *Feed) Station(query string, opts Options) Day {
 
 	matched := stations[single]
 	if matched == nil {
-		return newDay(query, nil)
+		return newDay(query, nil, nil)
 	}
-	return newDay(title(matched.platforms, query), matched.byHour)
+	return newDay(title(matched.platforms, query), matched.byHour, matched.routes)
 }
 
 // All groups every stop in the feed by name. Timetables are built on demand
@@ -387,9 +387,9 @@ func (t *Timetables) Stations() []Station { return t.index }
 func (t *Timetables) Day(name string) Day {
 	current := t.stations[name]
 	if current == nil {
-		return newDay(name, nil)
+		return newDay(name, nil, nil)
 	}
-	return newDay(name, current.byHour)
+	return newDay(name, current.byHour, current.routes)
 }
 
 // title picks the name to head the timetable with. GTFS splits a station into

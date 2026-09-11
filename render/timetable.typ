@@ -7,19 +7,26 @@
 #let bvg-bus = rgb("#A0148E")
 #let bvg-ubahn = rgb("#1565AF")
 #let bvg-sbahn = rgb("#008D4F")
+#let bvg-tram = rgb("#ED1C24")
+#let bvg-rail = rgb("#555150")
+#let bvg-ferry = rgb("#0B7285")
 #let ink = rgb("#242021")
 #let band = rgb("#ECEBEB")
 #let quiet = rgb("#605D5E")
 #let bvg-grey = rgb("#A5A3A4")
 #let hairline = 0.4pt + ink
 
-#let lineColour(route) = {
-  if route.starts-with("U") { bvg-ubahn } else if route.starts-with("S") { bvg-sbahn } else { bvg-bus }
+// The mode comes from the feed's route type, not from the line's name: M4 is a
+// tram and M19 a bus, and 60 is a tram that used to come out bus-purple here.
+#let lineColour(kind) = {
+  if kind == "sbahn" { bvg-sbahn } else if kind == "ubahn" { bvg-ubahn } else if kind == "tram" {
+    bvg-tram
+  } else if kind == "rail" { bvg-rail } else if kind == "ferry" { bvg-ferry } else { bvg-bus }
 }
 
-#let showDirection(route, direction) = {
+#let showDirection(route, direction, kind) = {
   let badge = box(
-    fill: lineColour(route),
+    fill: lineColour(kind),
     inset: (x: 2.5pt, y: 1pt),
     outset: (y: 1pt),
     radius: 1pt,
@@ -63,7 +70,7 @@
 #let legend = (:)
 #for hour in timetable.hours {
   for direction in hour.directions {
-    let key = direction.route_short + "|" + str(direction.direction)
+    let key = direction.route_short + "|" + str(direction.direction) + "|" + direction.at("kind", default: "bus")
     let departures = (direction.departuresMonFri, direction.departuresSat, direction.departuresSun).flatten()
     let headsigns = departures.map(departure => departure.headsign)
     legend.insert(key, (legend.at(key, default: ()) + headsigns).sorted().dedup())
@@ -97,7 +104,7 @@
 #let hourRows(hour) = {
   let byRoute = hour.directions.sorted(key: direction => direction.route_short + str(direction.direction))
   let cells = byRoute.map(direction => (
-    showDirection(direction.route_short, direction.direction),
+    showDirection(direction.route_short, direction.direction, direction.at("kind", default: "bus")),
     showDepartures(direction.departuresMonFri),
     showDepartures(direction.departuresSat),
     showDepartures(direction.departuresSun),
@@ -111,7 +118,7 @@
   #text(weight: 700)[Fahrtziele:]#h(4pt)
   #for (key, headsigns) in legend {
     let parts = key.split("|")
-    [#showDirection(parts.at(0), int(parts.at(1))) #headsigns.join(", ") #h(7pt)]
+    [#showDirection(parts.at(0), int(parts.at(1)), parts.at(2)) #headsigns.join(", ") #h(7pt)]
   }
 ]
 
