@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Abfahrplan</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="static/maplibre-gl.css">
 <link rel="stylesheet" href="static/app.css">
 </head>
-<body>
+<body class="map-page">
 <header>
   <div class="stop-sign">H</div>
   <h1>Abfahrplan</h1>
@@ -19,6 +20,7 @@
     <input id="q" type="search" placeholder="Haltestelle suchen…" autocomplete="off" autofocus>
     <div id="count"></div>
     <div id="results"></div>
+    {{ template "footer" . }}
   </div>
   <div id="map"></div>
 </main>

@@ -14,56 +14,37 @@ import (
 	"github.com/kmein/abfahrplan/timetable"
 )
 
-//go:embed index.html app.css app.js vendor glyphs
+//go:embed app.css app.js vendor glyphs
 var assets embed.FS
 
-//go:embed station.html
-var stationTemplate string
+//go:embed index.html station.html footer.html legal.html
+var pages embed.FS
 
-// Index is the landing page, written to the root of a build.
-func Index() ([]byte, error) { return assets.ReadFile("index.html") }
+//go:embed favicon.svg robots.txt
+var rootAssets embed.FS
 
-// StaticFiles lists the paths under static/, mapped to their source in the
-// embedded tree. vendor/ and glyphs/ are flattened one level so app.js can
-// import "./maplibre-gl.mjs" beside itself.
-func StaticFiles() (map[string]string, error) {
-	files := map[string]string{"app.css": "app.css", "app.js": "app.js"}
-	for _, dir := range []string{"vendor", "glyphs"} {
-		err := fs.WalkDir(assets, dir, func(path string, entry fs.DirEntry, err error) error {
-			if err != nil || entry.IsDir() || strings.HasSuffix(path, ".version") {
-				return err
-			}
-			target := strings.TrimPrefix(path, dir+"/")
-			if dir == "glyphs" {
-				target = "glyphs/" + target
-			}
-			files[target] = path
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return files, nil
+// Site is what every page needs to know about the build it belongs to.
+type Site struct {
+	ValidFrom      string
+	ValidTo        string
+	HasImpressum   bool
+	HasDatenschutz bool
 }
 
-// Asset reads one embedded file, by its path in StaticFiles.
-func Asset(path string) ([]byte, error) { return assets.ReadFile(path) }
+// page is one rendered page. Root is the relative path back to the site root,
+// so the shared footer can link the same things from / and from /s/.
+type page struct {
+	Site
+	Root  string
+	Title string
+	Body  template.HTML
 
-// Meta is the part of a build's metadata the station pages show.
-type Meta struct {
-	ValidFrom string
-	ValidTo   string
-}
-
-type stationPage struct {
 	Slug  string
 	Day   timetable.Day
-	Meta  Meta
 	Kinds map[string]string // route short name -> mode
 }
 
-var station = template.Must(template.New("station").Funcs(template.FuncMap{
+var templates = template.Must(template.New("abfahrplan").Funcs(template.FuncMap{
 	"badge": func(route string, kinds map[string]string) template.HTML {
 		kind := kinds[route]
 		if kind == "" {
@@ -88,7 +69,7 @@ var station = template.Must(template.New("station").Funcs(template.FuncMap{
 		}
 		return template.HTML(strings.Join(parts, " "))
 	},
-}).Parse(stationTemplate))
+}).ParseFS(pages, "*.html"))
 
 // servedWeekdays turns the weekdays a departure is missing from into the ones
 // it runs on, abbreviated as on a German timetable -- the same convention the
@@ -114,8 +95,62 @@ func servedWeekdays(excluded []string) string {
 	return strings.Join(served, ",")
 }
 
-// Station writes one station's HTML page. kinds maps each route short name to
-// its mode, so the badges match the colours on the map.
-func Station(out io.Writer, slug string, day timetable.Day, meta Meta, kinds map[string]string) error {
-	return station.Execute(out, stationPage{Slug: slug, Day: day, Meta: meta, Kinds: kinds})
+// Index writes the landing page: search box, map, footer.
+func Index(out io.Writer, site Site) error {
+	return templates.ExecuteTemplate(out, "index.html", page{Site: site, Root: ""})
 }
+
+// Station writes one station's page. kinds maps each route short name to its
+// mode, so the badges match the colours on the map.
+func Station(out io.Writer, slug string, day timetable.Day, site Site, kinds map[string]string) error {
+	return templates.ExecuteTemplate(out, "station.html", page{
+		Site: site, Root: "../", Slug: slug, Day: day, Kinds: kinds,
+	})
+}
+
+// Legal writes an Impressum or Datenschutzerklaerung: the operator's own text,
+// wrapped in the site's shell so it does not look like a different website.
+func Legal(out io.Writer, site Site, title string, body []byte) error {
+	return templates.ExecuteTemplate(out, "legal.html", page{
+		Site: site, Root: "", Title: title, Body: template.HTML(body),
+	})
+}
+
+// StaticFiles lists the paths under static/, mapped to their source in the
+// embedded tree. vendor/ and glyphs/ are flattened one level so app.js can
+// import "./maplibre-gl.mjs" beside itself.
+func StaticFiles() (map[string]string, error) {
+	files := map[string]string{"app.css": "app.css", "app.js": "app.js"}
+	for _, dir := range []string{"vendor", "glyphs"} {
+		err := fs.WalkDir(assets, dir, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil || entry.IsDir() || strings.HasSuffix(path, ".version") {
+				return err
+			}
+			target := strings.TrimPrefix(path, dir+"/")
+			if dir == "glyphs" {
+				target = "glyphs/" + target
+			}
+			files[target] = path
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return files, nil
+}
+
+// RootFiles are served from the root of the site rather than from static/,
+// because that is where browsers and crawlers look for them.
+func RootFiles() map[string][]byte {
+	files := map[string][]byte{}
+	for _, name := range []string{"favicon.svg", "robots.txt"} {
+		if content, err := rootAssets.ReadFile(name); err == nil {
+			files[name] = content
+		}
+	}
+	return files
+}
+
+// Asset reads one embedded file, by its path in StaticFiles.
+func Asset(path string) ([]byte, error) { return assets.ReadFile(path) }

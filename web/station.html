@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ .Day.Station }} — Abfahrplan</title>
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../static/app.css">
 </head>
 <body>
 <header>
   <div class="stop-sign">H</div>
   <h1>{{ .Day.Station }}</h1>
-  <div class="validity">gültig {{ .Meta.ValidFrom }} bis {{ .Meta.ValidTo }}</div>
+  <div class="validity">gültig {{ .ValidFrom }} bis {{ .ValidTo }}</div>
 </header>
 
 <div class="station">
@@ -42,9 +43,6 @@
   </table>
 </div>
 
-<footer>
-  Alle Angaben ohne Gewähr. Erzeugt aus den VBB-GTFS-Daten, gültig ab {{ .Meta.ValidFrom }}.
-  <a href="https://github.com/kmein/abfahrplan">Quelltext</a>.
-</footer>
+{{ template "footer" . }}
 </body>
 </html>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ .Title }} — Abfahrplan</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="static/app.css">
+</head>
+<body>
+<header>
+  <div class="stop-sign">H</div>
+  <h1>{{ .Title }}</h1>
+</header>
+
+<div class="station prose">
+  {{ .Body }}
+  <p><a href="./">zur Karte</a></p>
+</div>
+
+{{ template "footer" . }}
+</body>
+</html>

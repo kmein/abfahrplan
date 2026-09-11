@@ -59,7 +59,7 @@
     set text(size: 6.5pt, fill: quiet)
     grid(
       columns: (1fr, auto),
-      [Alle Angaben ohne Gewähr. Erzeugt aus den VBB-GTFS-Daten.],
+      [Alle Angaben ohne Gewähr. Fahrplandaten: VBB Verkehrsverbund Berlin-Brandenburg GmbH (CC BY).],
       context counter(page).display(),
     )
   },

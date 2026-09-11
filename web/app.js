@@ -98,7 +98,9 @@ function startMap(meta) {
         basemap: {
           type: "vector",
           url: "pmtiles://basemap.pmtiles",
-          attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, Fahrplandaten VBB',
+          attribution:
+            '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ' +
+            'Fahrplandaten: VBB Verkehrsverbund Berlin-Brandenburg GmbH (CC BY)',
         },
       },
       layers: basemapLayers,

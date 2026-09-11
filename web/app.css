@@ -163,3 +163,22 @@ main {
 .station td.hour { background: var(--band); font-weight: 800; text-align: right; width: 1%; white-space: nowrap; }
 .station sup { color: var(--bus); font-weight: 700; font-size: 9px; }
 footer { padding: 14px; font-size: 12px; color: var(--quiet); }
+
+/* ---- footer & legal pages -------------------------------------------- */
+
+footer {
+  padding: 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--quiet);
+  border-top: 1px solid var(--hairline);
+}
+footer p { margin: 0 0 5px; }
+footer a { color: var(--quiet); }
+
+/* the panel scrolls, so its footer sits under the results rather than fixed */
+.map-page #panel footer { border-top: 1px solid var(--hairline); flex: none; }
+
+.prose { max-width: 42em; }
+.prose h2 { font-size: 15px; margin: 18px 0 6px; }
+.prose p, .prose li { font-size: 14px; }

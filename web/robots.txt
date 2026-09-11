@@ -1,0 +1,7 @@
+# Station pages are worth finding; the PDFs and raw JSON are not worth
+# crawling. A full sweep of the sheets is several hundred megabytes, and they
+# are regenerated whenever the feed changes.
+User-agent: *
+Disallow: /s/*.pdf$
+Disallow: /s/*.json$
+Allow: /

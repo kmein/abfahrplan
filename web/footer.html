@@ -1,0 +1,19 @@
+{{ define "footer" }}
+<footer>
+  <p>
+    Fahrplandaten: VBB Verkehrsverbund Berlin-Brandenburg GmbH
+    (<a href="https://daten.berlin.de/datensaetze/vbb-fahrplandaten-via-gtfs" rel="noopener">CC&nbsp;BY</a>).
+    Karte: © <a href="https://www.openstreetmap.org/copyright" rel="noopener">OpenStreetMap</a>-Mitwirkende.
+    Alle Angaben ohne Gewähr.
+  </p>
+  <p>
+    Abfahrtszeiten beschreiben eine gewöhnliche Woche: Fahrten, die nur
+    vereinzelt verkehren, sind nicht aufgeführt.
+  </p>
+  <p>
+    <a href="https://github.com/kmein/abfahrplan" rel="noopener">Quelltext</a> (AGPL-3.0)
+    {{- if .HasImpressum }} · <a href="{{ .Root }}impressum.html">Impressum</a>{{ end }}
+    {{- if .HasDatenschutz }} · <a href="{{ .Root }}datenschutz.html">Datenschutz</a>{{ end }}
+  </p>
+</footer>
+{{ end }}

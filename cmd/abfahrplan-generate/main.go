@@ -45,6 +45,8 @@ func main() {
 	bbox := flag.String("bbox", "", "Only stations inside minLon,minLat,maxLon,maxLat")
 	basemap := flag.String("basemap", "", "PMTiles basemap to publish alongside the site")
 	trim := flag.String("trim", "(Berlin)", "Remove this text from station names and headsigns")
+	impressum := flag.String("impressum", "", "HTML file whose contents become the Impressum page")
+	datenschutz := flag.String("datenschutz", "", "HTML file whose contents become the Datenschutz page")
 	flag.Parse()
 
 	var bounds *timetable.Bounds
@@ -57,13 +59,13 @@ func main() {
 		bounds = parsed
 	}
 
-	if err := generate(*gtfsFile, *feedURL, *outDir, *basemap, *trim, bounds, *jobs, *keep, *limit, *force); err != nil {
+	if err := generate(*gtfsFile, *feedURL, *outDir, *basemap, *trim, *impressum, *datenschutz, bounds, *jobs, *keep, *limit, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func generate(gtfsFile, feedURL, outDir, basemap, trim string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
+func generate(gtfsFile, feedURL, outDir, basemap, trim, impressum, datenschutz string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
 	if feedURL != "" {
 		changed, err := fetchFeed(feedURL, gtfsFile)
 		if err != nil {
@@ -155,12 +157,17 @@ func generate(gtfsFile, feedURL, outDir, basemap, trim string, bounds *timetable
 		log("published basemap from %s", basemap)
 	}
 
-	if err := writeFrontEnd(workDir); err != nil {
+	site := web.Site{
+		ValidFrom:      from.Format("2006-01-02"),
+		ValidTo:        to.Format("2006-01-02"),
+		HasImpressum:   impressum != "",
+		HasDatenschutz: datenschutz != "",
+	}
+	if err := writeFrontEnd(workDir, site, impressum, datenschutz); err != nil {
 		return fmt.Errorf("writing the front end: %w", err)
 	}
 
-	pages := web.Meta{ValidFrom: from.Format("2006-01-02"), ValidTo: to.Format("2006-01-02")}
-	if err := renderAll(all, stations, workDir, pages, jobs); err != nil {
+	if err := renderAll(all, stations, workDir, site, jobs); err != nil {
 		return err
 	}
 
@@ -183,13 +190,50 @@ func generate(gtfsFile, feedURL, outDir, basemap, trim string, bounds *timetable
 // writeFrontEnd unpacks the embedded page, its stylesheet and script, and the
 // vendored MapLibre and PMTiles libraries with the map's glyph ranges. Nothing
 // here is fetched at runtime, so the published tree has no CDN to outlive it.
-func writeFrontEnd(workDir string) error {
-	index, err := web.Index()
+func writeFrontEnd(workDir string, site web.Site, impressum, datenschutz string) error {
+	index, err := os.Create(filepath.Join(workDir, "index.html"))
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(workDir, "index.html"), index, 0o644); err != nil {
+	if err := web.Index(index, site); err != nil {
+		index.Close()
 		return err
+	}
+	if err := index.Close(); err != nil {
+		return err
+	}
+
+	// The operator's own text, wrapped in the site's shell. Absent unless they
+	// supply it: an Impressum nobody wrote is worse than none.
+	for _, legal := range []struct{ source, name, title string }{
+		{impressum, "impressum.html", "Impressum"},
+		{datenschutz, "datenschutz.html", "Datenschutz"},
+	} {
+		if legal.source == "" {
+			continue
+		}
+		body, err := os.ReadFile(legal.source)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", legal.title, err)
+		}
+		out, err := os.Create(filepath.Join(workDir, legal.name))
+		if err != nil {
+			return err
+		}
+		if err := web.Legal(out, site, legal.title, body); err != nil {
+			out.Close()
+			return err
+		}
+		if err := out.Close(); err != nil {
+			return err
+		}
+		log("wrote %s", legal.name)
+	}
+
+	for name, content := range web.RootFiles() {
+		if err := os.WriteFile(filepath.Join(workDir, name), content, 0o644); err != nil {
+			return err
+		}
 	}
 
 	files, err := web.StaticFiles()
@@ -213,7 +257,7 @@ func writeFrontEnd(workDir string) error {
 	return nil
 }
 
-func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, pages web.Meta, jobs int) error {
+func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, site web.Site, jobs int) error {
 	if jobs < 1 {
 		jobs = 1
 	}
@@ -255,7 +299,7 @@ func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir 
 						kinds[route] = station.Kinds[i]
 					}
 				}
-				if err := web.Station(page, station.Slug, day, pages, kinds); err != nil {
+				if err := web.Station(page, station.Slug, day, site, kinds); err != nil {
 					page.Close()
 					once.Do(func() { failure = fmt.Errorf("page for %s: %w", station.Name, err) })
 					return
