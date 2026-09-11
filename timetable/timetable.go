@@ -3,6 +3,7 @@
 package timetable
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"sort"
@@ -121,16 +122,55 @@ func containsCI(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
+// Bounds is a geographic box, in the order pmtiles and most tile tooling use.
+type Bounds struct {
+	MinLon, MinLat, MaxLon, MaxLat float64
+}
+
+// ParseBounds reads "minLon,minLat,maxLon,maxLat".
+func ParseBounds(spec string) (*Bounds, error) {
+	fields := strings.Split(spec, ",")
+	if len(fields) != 4 {
+		return nil, fmt.Errorf("want minLon,minLat,maxLon,maxLat, got %q", spec)
+	}
+	values := make([]float64, 4)
+	for i, field := range fields {
+		value, err := strconv.ParseFloat(strings.TrimSpace(field), 64)
+		if err != nil {
+			return nil, fmt.Errorf("bounds: %w", err)
+		}
+		values[i] = value
+	}
+	bounds := &Bounds{values[0], values[1], values[2], values[3]}
+	if bounds.MinLon > bounds.MaxLon || bounds.MinLat > bounds.MaxLat {
+		return nil, fmt.Errorf("bounds: min is greater than max in %q", spec)
+	}
+	return bounds, nil
+}
+
+func (b *Bounds) contains(lat, lon float64) bool {
+	if b == nil {
+		return true
+	}
+	return lat >= b.MinLat && lat <= b.MaxLat && lon >= b.MinLon && lon <= b.MaxLon
+}
+
+// Options narrow what a feed is asked for.
+type Options struct {
+	Routes []string // only these route short names
+	Within *Bounds  // only stops inside this box
+}
+
 // collect walks every trip once, grouping departures into stations. stationOf
 // names the station a stop belongs to, or returns false to skip the stop.
-func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []string) map[string]*station {
+func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), opts Options) map[string]*station {
 	stations := make(map[string]*station)
 	departures := make(map[key]*departure)
 	daysOf := make(map[*gtfs.Service]dayset)
 	seenStop := make(map[*gtfs.Stop]bool)
 
 	for _, trip := range f.feed.Trips {
-		if len(routeNames) > 0 && !slices.Contains(routeNames, trip.Route.Short_name) {
+		if len(opts.Routes) > 0 && !slices.Contains(opts.Routes, trip.Route.Short_name) {
 			continue
 		}
 
@@ -154,6 +194,9 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []s
 			}
 
 			stop := stopTime.Stop()
+			if !opts.Within.contains(float64(stop.Lat), float64(stop.Lon)) {
+				continue
+			}
 			name, ok := stationOf(stop)
 			if !ok {
 				continue
@@ -218,11 +261,11 @@ func (f *Feed) collect(stationOf func(*gtfs.Stop) (string, bool), routeNames []s
 
 // Station returns the timetable for the stops whose name contains query,
 // merged into one. Optionally restricted to the given route short names.
-func (f *Feed) Station(query string, routeNames ...string) Day {
+func (f *Feed) Station(query string, opts Options) Day {
 	const single = ""
 	stations := f.collect(func(stop *gtfs.Stop) (string, bool) {
 		return single, containsCI(stop.Name, query)
-	}, routeNames)
+	}, opts)
 
 	matched := stations[single]
 	if matched == nil {
@@ -234,10 +277,10 @@ func (f *Feed) Station(query string, routeNames ...string) Day {
 // All groups every stop in the feed by name. Timetables are built on demand
 // rather than up front, so a caller writing them out one at a time never holds
 // more than one marshalled timetable.
-func (f *Feed) All(routeNames ...string) *Timetables {
+func (f *Feed) All(opts Options) *Timetables {
 	stations := f.collect(func(stop *gtfs.Stop) (string, bool) {
 		return stop.Name, true
-	}, routeNames)
+	}, opts)
 
 	names := make([]string, 0, len(stations))
 	for name := range stations {

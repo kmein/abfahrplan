@@ -36,7 +36,7 @@ func main() {
 	agencies, stops, routes, trips, fareAttributes := feed.Counts()
 	fmt.Printf("Done, parsed %d agencies, %d stops, %d routes, %d trips, %d fare attributes\n\n", agencies, stops, routes, trips, fareAttributes)
 
-	day := feed.Station(*stationName, *routeNames...)
+	day := feed.Station(*stationName, timetable.Options{Routes: *routeNames})
 
 	jsonData, err := json.MarshalIndent(day, "", "  ")
 	if err != nil {

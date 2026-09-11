@@ -39,15 +39,27 @@ func main() {
 	keep := flag.Int("keep", 2, "How many previous builds to keep")
 	force := flag.Bool("force", false, "Publish even if the feed's validity period has ended")
 	limit := flag.Int("limit", 0, "Only generate this many stations (0 = all), for smoke tests")
+	bbox := flag.String("bbox", "", "Only stations inside minLon,minLat,maxLon,maxLat")
+	basemap := flag.String("basemap", "", "PMTiles basemap to publish alongside the site")
 	flag.Parse()
 
-	if err := generate(*gtfsFile, *outDir, *jobs, *keep, *limit, *force); err != nil {
+	var bounds *timetable.Bounds
+	if *bbox != "" {
+		parsed, err := timetable.ParseBounds(*bbox)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
+			os.Exit(1)
+		}
+		bounds = parsed
+	}
+
+	if err := generate(*gtfsFile, *outDir, *basemap, bounds, *jobs, *keep, *limit, *force); err != nil {
 		fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func generate(gtfsFile, outDir string, jobs, keep, limit int, force bool) error {
+func generate(gtfsFile, outDir, basemap string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
 	version, err := fingerprint(gtfsFile)
 	if err != nil {
 		return err
@@ -71,7 +83,7 @@ func generate(gtfsFile, outDir string, jobs, keep, limit int, force bool) error 
 	}
 
 	log("collecting departures for every station")
-	all := feed.All()
+	all := feed.All(timetable.Options{Within: bounds})
 	stations := all.Stations()
 	if limit > 0 && limit < len(stations) {
 		stations = stations[:limit]
@@ -105,6 +117,13 @@ func generate(gtfsFile, outDir string, jobs, keep, limit int, force bool) error 
 		Departures: departures,
 	}); err != nil {
 		return err
+	}
+
+	if basemap != "" {
+		if err := copyFile(basemap, filepath.Join(workDir, "basemap.pmtiles")); err != nil {
+			return fmt.Errorf("publishing basemap: %w", err)
+		}
+		log("published basemap from %s", basemap)
 	}
 
 	if err := renderAll(all, stations, workDir, jobs); err != nil {
@@ -238,6 +257,25 @@ func fingerprint(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(digest.Sum(nil))[:12], nil
+}
+
+func copyFile(from, to string) error {
+	source, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+
+	destination, err := os.Create(to)
+	if err != nil {
+		return err
+	}
+	defer destination.Close()
+
+	if _, err := io.Copy(destination, source); err != nil {
+		return err
+	}
+	return destination.Close()
 }
 
 func writeJSON(path string, value any) error {
