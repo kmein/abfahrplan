@@ -98,6 +98,56 @@ The `GTFS.zip` rule has no freshness condition, so `make` will never replace a f
 rm GTFS.zip && make
 ```
 
+## The website
+
+`abfahrplan-generate` turns the same feed into a static site: a searchable map
+of every stop, a page per station listing its departures, and the timetable
+sheet as a PDF.
+
+```bash
+nix build .#abfahrplan
+./result/bin/abfahrplan-generate \
+  --url "https://unternehmen.vbb.de/.../GTFS.zip" \
+  --gtfs state/GTFS.zip --out state \
+  --bbox 13.0883,52.3383,13.7612,52.6755 \
+  --basemap state/basemap.pmtiles
+```
+
+It writes `state/builds/<feed-hash>/` and points `state/current` at it with an
+atomic symlink swap, so serving is never interrupted by a rebuild. Point any
+web server at `state/current`; there is no application process.
+
+`.github/workflows/pages.yml` does exactly that on a schedule and publishes to
+GitHub Pages. The feed is fetched conditionally — if the server answers 304,
+the build is skipped — so a daily check costs one request on most days.
+
+### The sheets are compiled in your browser
+
+The site does not ship 3,843 PDFs. It ships the Typst compiler as WebAssembly,
+the template, and the fonts, and builds the sheet when you ask for one. That is
+because GitHub Pages caps a site at 1 GB and the PDFs alone came to 693 MB.
+
+The template and fonts are the ones the command line uses, so the file you
+download is the file `abfahrplan --pdf` produces; the only difference is the
+date it was generated on. A sheet takes about a tenth of a second once the
+compiler has loaded, and the compiler is fetched once.
+
+Every station page lists its departures as an ordinary table, so the site works
+with JavaScript switched off — only the PDF button needs it. Self-hosting
+somewhere without a size limit? `--pdf` renders every sheet ahead of time
+instead.
+
+### The map
+
+Stations are coloured by the mode that calls there — S-Bahn green, U-Bahn blue,
+tram red, bus magenta, in BVG's own colours — using the feed's extended GTFS
+route types rather than the line's name, which cannot tell the tram M4 from the
+bus M19.
+
+The basemap is a [PMTiles](https://protomaps.com/) extract served as one file
+by byte range, with no tile server and no API key. `--basemap` publishes it
+alongside the site; without one the map draws stations on a blank ground.
+
 ## How the weekdays are worked out
 
 A GTFS service says which days it runs on twice over: a weekday bitmap in `calendar.txt` and per-date exceptions in `calendar_dates.txt`. Reading only the bitmap is not enough — VBB increasingly leaves it empty and puts every day in `calendar_dates.txt`, and splits each service into fragments covering a few weeks each, so no single service describes a whole week.

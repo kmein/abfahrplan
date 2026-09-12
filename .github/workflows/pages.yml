@@ -1,0 +1,116 @@
+name: build and publish
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    # VBB publishes twice a week; check daily and let the conditional fetch
+    # decide whether there is anything to rebuild.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even if the feed has not changed
+        type: boolean
+        default: false
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      FEED_URL: https://unternehmen.vbb.de/fileadmin/user_upload/VBB/Dokumente/API-Datensaetze/gtfs-mastscharf/GTFS.zip
+      BBOX: 13.0883,52.3383,13.7612,52.6755
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build the generator
+        run: nix build .#abfahrplan
+
+      # The feed is ~83 MB and changes every few weeks. Keeping it across runs
+      # lets the conditional fetch answer 304 and skip the whole build.
+      - name: Restore the feed
+        uses: actions/cache@v4
+        with:
+          path: |
+            state/GTFS.zip
+            state/GTFS.zip.etag
+          key: gtfs-${{ github.run_id }}
+          restore-keys: gtfs-
+
+      - name: Which month is it
+        id: month
+        run: echo "value=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the basemap
+        id: basemap
+        uses: actions/cache@v4
+        with:
+          path: state/basemap.pmtiles
+          # Protomaps rebuilds nightly, but streets do not move that fast: a
+          # monthly key re-cuts it twelve times a year rather than daily.
+          key: basemap-${{ steps.month.outputs.value }}
+          restore-keys: basemap-
+
+      - name: Cut a basemap if we have none
+        if: steps.basemap.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p state
+          # Protomaps publishes dated builds and drops old ones, so walk back
+          # from today until one answers rather than pinning a date that rots.
+          for back in $(seq 0 10); do
+            day=$(date -u -d "-$back day" +%Y%m%d)
+            url="https://build.protomaps.com/$day.pmtiles"
+            if curl -sfI --max-time 30 "$url" >/dev/null; then
+              nix run nixpkgs#pmtiles -- extract "$url" state/basemap.pmtiles \
+                --bbox="$BBOX" --maxzoom=14
+              exit 0
+            fi
+          done
+          echo "no Protomaps build answered in ten days; carrying on without a basemap" >&2
+
+      - name: Generate
+        run: |
+          mkdir -p state
+          ./result/bin/abfahrplan-generate \
+            --url "$FEED_URL" \
+            --gtfs state/GTFS.zip \
+            --out state \
+            --bbox "$BBOX" \
+            --basemap state/basemap.pmtiles \
+            --trim "(Berlin)" \
+            --keep 1 \
+            ${{ inputs.force && '--force' || '' }}
+
+      - name: Report what was built
+        run: |
+          test -e state/current/index.html
+          du -sh state/current
+          cat state/current/meta.json
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: state/current
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
