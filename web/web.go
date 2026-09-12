@@ -14,10 +14,10 @@ import (
 	"github.com/kmein/abfahrplan/timetable"
 )
 
-//go:embed app.css app.js vendor glyphs
+//go:embed app.css app.js sheet.js vendor glyphs typst
 var assets embed.FS
 
-//go:embed index.html station.html footer.html legal.html
+//go:embed index.html station.html footer.html legal.html importmap.html
 var pages embed.FS
 
 //go:embed favicon.svg robots.txt
@@ -120,15 +120,17 @@ func Legal(out io.Writer, site Site, title string, body []byte) error {
 // embedded tree. vendor/ and glyphs/ are flattened one level so app.js can
 // import "./maplibre-gl.mjs" beside itself.
 func StaticFiles() (map[string]string, error) {
-	files := map[string]string{"app.css": "app.css", "app.js": "app.js"}
-	for _, dir := range []string{"vendor", "glyphs"} {
+	files := map[string]string{"app.css": "app.css", "app.js": "app.js", "sheet.js": "sheet.js"}
+	for _, dir := range []string{"vendor", "glyphs", "typst"} {
 		err := fs.WalkDir(assets, dir, func(path string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() || strings.HasSuffix(path, ".version") {
 				return err
 			}
-			target := strings.TrimPrefix(path, dir+"/")
-			if dir == "glyphs" {
-				target = "glyphs/" + target
+			// vendor/ is flattened so app.js can import "./maplibre-gl.mjs"
+			// beside itself; everything else keeps its shape.
+			target := path
+			if dir == "vendor" {
+				target = strings.TrimPrefix(path, dir+"/")
 			}
 			files[target] = path
 			return nil

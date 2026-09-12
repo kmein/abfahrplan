@@ -1,0 +1,15 @@
+{{ define "importmap" }}
+<script type="importmap">
+{
+  "imports": {
+    "@myriaddreamin/typst.ts": "{{ .Root }}static/typst/lib/typst/index.mjs",
+    "@myriaddreamin/typst.ts/compiler": "{{ .Root }}static/typst/lib/typst/compiler.mjs",
+    "@myriaddreamin/typst.ts/renderer": "{{ .Root }}static/typst/lib/typst/renderer.mjs",
+    "@myriaddreamin/typst.ts/contrib/global-compiler": "{{ .Root }}static/typst/lib/typst/contrib/global-compiler.mjs",
+    "@myriaddreamin/typst.ts/contrib/global-renderer": "{{ .Root }}static/typst/lib/typst/contrib/global-renderer.mjs",
+    "@myriaddreamin/typst-ts-web-compiler": "{{ .Root }}static/typst/lib/typst_ts_web_compiler.mjs",
+    "@myriaddreamin/typst-ts-web-compiler/": "{{ .Root }}static/typst/lib/"
+  }
+}
+</script>
+{{ end }}

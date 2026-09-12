@@ -1,5 +1,6 @@
 // maplibre-gl v6 ships ESM with named exports only -- there is no default
 import * as maplibregl from "./maplibre-gl.mjs";
+import { wire } from "./sheet.js";
 
 // pmtiles.js is loaded as a classic script and registers the global; the
 // protocol has to exist before any style references a pmtiles:// url
@@ -170,9 +171,10 @@ function select(slug) {
     .setHTML(`
       <div class="popup-name">${station.name}</div>
       <div>${badges(station)}</div>
-      <a class="sheet" href="s/${station.slug}.pdf" target="_blank" rel="noopener">Fahrplan als PDF</a>
+      <button class="sheet" data-sheet="${station.slug}" data-name="${station.name}">Fahrplan als PDF</button>
       <div style="margin-top:6px"><a href="s/${station.slug}.html">Abfahrten ansehen</a></div>`)
     .addTo(map);
+  wire();
 }
 
 results.addEventListener("click", (event) => {

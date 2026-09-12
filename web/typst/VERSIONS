@@ -1,0 +1,3 @@
+typst.ts version: 0.7.0
+typst-ts-web-compiler version: 0.7.0
+typst: 0.15.1 (same as nixpkgs typst pinned by the package)

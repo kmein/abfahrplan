@@ -6,6 +6,7 @@
 <title>{{ .Day.Station }} — Abfahrplan</title>
 <link rel="icon" href="../favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../static/app.css">
+{{ template "importmap" . }}
 </head>
 <body>
 <header>
@@ -16,7 +17,7 @@
 
 <div class="station">
   <p>
-    <a class="sheet" href="{{ .Slug }}.pdf" target="_blank" rel="noopener">Fahrplan als PDF</a>
+    <button class="sheet" data-sheet="{{ .Slug }}" data-name="{{ .Day.Station }}">Fahrplan als PDF</button>
     <a style="margin-left:10px" href="../">zur Karte</a>
   </p>
 
@@ -44,5 +45,9 @@
 </div>
 
 {{ template "footer" . }}
+<script type="module">
+  import { wire } from "../static/sheet.js";
+  wire();
+</script>
 </body>
 </html>

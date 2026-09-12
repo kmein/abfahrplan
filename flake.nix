@@ -4,7 +4,7 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
   outputs =
-    { self, nixpkgs }:
+    { nixpkgs, ... }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -19,11 +19,6 @@
         default = abfahrplan;
       });
 
-      nixosModules.default = {
-        imports = [ ./nix/module.nix ];
-        nixpkgs.overlays = [ self.overlays.default ];
-      };
-
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [
@@ -37,10 +32,6 @@
           # matches a deployed one
           ABFAHRPLAN_FONT_PATH = "${pkgs.fira-sans}/share/fonts";
         };
-      });
-
-      checks = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system: {
-        vm = import ./nix/test.nix { pkgs = nixpkgs.legacyPackages.${system}; };
       });
 
       formatter = forAllSystems (pkgs: pkgs.nixfmt-rfc-style);

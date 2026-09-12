@@ -47,6 +47,7 @@ func main() {
 	trim := flag.String("trim", "(Berlin)", "Remove this text from station names and headsigns")
 	impressum := flag.String("impressum", "", "HTML file whose contents become the Impressum page")
 	datenschutz := flag.String("datenschutz", "", "HTML file whose contents become the Datenschutz page")
+	renderPDFs := flag.Bool("pdf", false, "Also render every sheet to PDF. Off by default: the browser compiles them on demand, and 3,843 of them is 700 MB")
 	flag.Parse()
 
 	var bounds *timetable.Bounds
@@ -59,13 +60,13 @@ func main() {
 		bounds = parsed
 	}
 
-	if err := generate(*gtfsFile, *feedURL, *outDir, *basemap, *trim, *impressum, *datenschutz, bounds, *jobs, *keep, *limit, *force); err != nil {
+	if err := generate(*gtfsFile, *feedURL, *outDir, *basemap, *trim, *impressum, *datenschutz, bounds, *jobs, *keep, *limit, *force, *renderPDFs); err != nil {
 		fmt.Fprintf(os.Stderr, "abfahrplan-generate: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func generate(gtfsFile, feedURL, outDir, basemap, trim, impressum, datenschutz string, bounds *timetable.Bounds, jobs, keep, limit int, force bool) error {
+func generate(gtfsFile, feedURL, outDir, basemap, trim, impressum, datenschutz string, bounds *timetable.Bounds, jobs, keep, limit int, force, renderPDFs bool) error {
 	if feedURL != "" {
 		changed, err := fetchFeed(feedURL, gtfsFile)
 		if err != nil {
@@ -172,7 +173,7 @@ func generate(gtfsFile, feedURL, outDir, basemap, trim, impressum, datenschutz s
 		return fmt.Errorf("writing the front end: %w", err)
 	}
 
-	if err := renderAll(all, stations, workDir, site, jobs); err != nil {
+	if err := renderAll(all, stations, workDir, site, jobs, renderPDFs); err != nil {
 		return err
 	}
 
@@ -235,6 +236,16 @@ func writeFrontEnd(workDir string, site web.Site, impressum, datenschutz string)
 		log("wrote %s", legal.name)
 	}
 
+	// The browser compiles sheets from this, so it has to be the very template
+	// the command line renders with, not a copy that can drift.
+	typstDir := filepath.Join(workDir, "static", "typst")
+	if err := os.MkdirAll(typstDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(typstDir, "timetable.typ"), render.Template, 0o644); err != nil {
+		return err
+	}
+
 	for name, content := range web.RootFiles() {
 		if err := os.WriteFile(filepath.Join(workDir, name), content, 0o644); err != nil {
 			return err
@@ -262,7 +273,7 @@ func writeFrontEnd(workDir string, site web.Site, impressum, datenschutz string)
 	return nil
 }
 
-func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, site web.Site, jobs int) error {
+func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir string, site web.Site, jobs int, renderPDFs bool) error {
 	if jobs < 1 {
 		jobs = 1
 	}
@@ -284,14 +295,16 @@ func renderAll(all *timetable.Timetables, stations []timetable.Station, workDir 
 					once.Do(func() { failure = err })
 					return
 				}
-				pdf, err := renderer.PDF(context.Background(), day)
-				if err != nil {
-					once.Do(func() { failure = fmt.Errorf("rendering %s: %w", station.Name, err) })
-					return
-				}
-				if err := os.WriteFile(base+".pdf", pdf, 0o644); err != nil {
-					once.Do(func() { failure = err })
-					return
+				if renderPDFs {
+					pdf, err := renderer.PDF(context.Background(), day)
+					if err != nil {
+						once.Do(func() { failure = fmt.Errorf("rendering %s: %w", station.Name, err) })
+						return
+					}
+					if err := os.WriteFile(base+".pdf", pdf, 0o644); err != nil {
+						once.Do(func() { failure = err })
+						return
+					}
 				}
 				page, err := os.Create(base + ".html")
 				if err != nil {
