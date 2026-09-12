@@ -34,7 +34,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Build the generator
         run: nix build .#abfahrplan
@@ -98,7 +97,7 @@ jobs:
       - name: Report what was built
         run: |
           test -e state/current/index.html
-          du -sh state/current
+          du -shL state/current
           cat state/current/meta.json
 
       - uses: actions/upload-pages-artifact@v3
