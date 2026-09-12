@@ -32,7 +32,10 @@ type Site struct {
 }
 
 // page is one rendered page. Root is the relative path back to the site root,
-// so the shared footer can link the same things from / and from /s/.
+// so the shared footer can link the same things from / and from /s/. It is
+// never empty: an import map address has to start with /, ./ or ../, and a
+// bare "static/..." is silently dropped as invalid, which breaks every module
+// specifier on the page that carries it.
 type page struct {
 	Site
 	Root  string
@@ -97,7 +100,7 @@ func servedWeekdays(excluded []string) string {
 
 // Index writes the landing page: search box, map, footer.
 func Index(out io.Writer, site Site) error {
-	return templates.ExecuteTemplate(out, "index.html", page{Site: site, Root: ""})
+	return templates.ExecuteTemplate(out, "index.html", page{Site: site, Root: "./"})
 }
 
 // Station writes one station's page. kinds maps each route short name to its
@@ -112,7 +115,7 @@ func Station(out io.Writer, slug string, day timetable.Day, site Site, kinds map
 // wrapped in the site's shell so it does not look like a different website.
 func Legal(out io.Writer, site Site, title string, body []byte) error {
 	return templates.ExecuteTemplate(out, "legal.html", page{
-		Site: site, Root: "", Title: title, Body: template.HTML(body),
+		Site: site, Root: "./", Title: title, Body: template.HTML(body),
 	})
 }
 
